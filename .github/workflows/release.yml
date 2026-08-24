@@ -42,13 +42,19 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup -y --no-progress
-          echo "ISCC=$(Get-Command ISCC.exe | Select-Object -ExpandProperty Source)" >> $env:GITHUB_ENV
 
       - name: Build installer (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          & "$env:ISCC" installer.iss /DMyAppVersion=${{ github.ref_name }}
+          # 定位 ISCC.exe (choco 安装路径)
+          $iscc = Get-ChildItem "C:\Program Files (x86)\Inno Setup*" -Filter "ISCC.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $iscc) {
+            $iscc = Get-ChildItem "C:\Program Files\Inno Setup*" -Filter "ISCC.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          if (-not $iscc) { Write-Error "ISCC.exe not found"; exit 1 }
+          Write-Output "ISCC: $($iscc.FullName)"
+          & $iscc.FullName installer.iss
           Get-ChildItem installer/*.exe | ForEach-Object { Write-Output "INSTALLER: $($_.FullName) ($([math]::Round($_.Length/1MB,1)) MB)" }
 
       - name: Create zip (Windows)
