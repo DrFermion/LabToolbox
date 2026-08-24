@@ -142,6 +142,28 @@ class LabToolboxApp:
         self._widgets.append((btn, text))
         return btn
 
+    def _open_example(self):
+        """打开生长曲线范例表格"""
+        self._open_example_file("example_growth_curve.xlsx")
+
+    def _open_example_ld(self):
+        """打开 LIVE/DEAD 范例表格"""
+        self._open_example_file("example_livedead.xlsx")
+
+    def _open_example_file(self, name):
+        """用系统默认程序打开 examples 目录下的范例文件"""
+        import subprocess
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "examples", name)
+        if not os.path.exists(path):
+            messagebox.showwarning(tr("提示", self.lang),
+                                   tr("范例文件不存在: ", self.lang) + path)
+            return
+        try:
+            os.startfile(path)  # type: ignore
+        except Exception:
+            subprocess.run(["cmd", "/c", "start", "", path])
+
     def _run_async(self, fn, *args):
         """后台线程运行, 完成后更新状态"""
         self.status_var.set(tr("⏳ 运行中...", self.lang))
@@ -176,6 +198,13 @@ class LabToolboxApp:
         self.gc_file = tk.StringVar()
         self._file_row(inner, "数据文件", self.gc_file,
                        [("Excel/CSV", "*.xlsx *.xls *.csv")])
+        # 范例表格提示
+        row = ttk.Frame(inner); row.pack(fill="x", pady=2)
+        ttk.Label(row, text=tr("范例: ", self.lang), foreground="#a6adc8").pack(side="left")
+        ttk.Label(row, text="time_min, od600, cfu_ml", foreground="#f9e2af").pack(side="left")
+        btn = ttk.Button(row, text=tr("打开范例表格", self.lang), command=self._open_example)
+        btn.pack(side="left", padx=8)
+        self._widgets.append((btn, "打开范例表格"))
         self.gc_out = tk.StringVar(value="output")
         self._output_row(inner, self.gc_out)
         self._run_button(inner, "🚀 运行生长曲线分析",
@@ -260,6 +289,13 @@ class LabToolboxApp:
         self.ld_file = tk.StringVar()
         self._file_row(inner, "数据文件", self.ld_file,
                        [("Excel/CSV", "*.xlsx *.xls *.csv")])
+        # 范例表格提示
+        row = ttk.Frame(inner); row.pack(fill="x", pady=2)
+        ttk.Label(row, text=tr("范例: ", self.lang), foreground="#a6adc8").pack(side="left")
+        ttk.Label(row, text="group, time, repeat, live, dead", foreground="#f9e2af").pack(side="left")
+        btn = ttk.Button(row, text=tr("打开范例表格", self.lang), command=self._open_example_ld)
+        btn.pack(side="left", padx=8)
+        self._widgets.append((btn, "打开范例表格"))
         row = ttk.Frame(inner); row.pack(fill="x", pady=4)
         lbl = ttk.Label(row, text=tr("工作表名 (可选)", self.lang), width=18)
         lbl.pack(side="left"); self._widgets.append((lbl, "工作表名 (可选)"))
