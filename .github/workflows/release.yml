@@ -112,7 +112,6 @@ jobs:
           prerelease: false
           generate_release_notes: true
           files: |
-            artifacts/LabToolbox-Windows/LabToolbox-Windows.zip
-            artifacts/LabToolbox-Windows/*.exe
-            artifacts/LabToolbox-macOS/LabToolbox-macOS.zip
-            artifacts/LabToolbox-macOS/LabToolbox-macOS.dmg
+            artifacts/**/*.zip
+            artifacts/**/*.dmg
+            artifacts/**/*.exe
