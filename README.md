@@ -1,5 +1,7 @@
 # 实验室工具箱 (LabToolbox)
 
+> **English README**: [README_EN.md](README_EN.md) | **中文**: [README.md](README.md)
+
 Ruinong Pan 的生物医学实验室分析工具集 — 将 OneDrive 共享文件夹中的零散程序整合为统一、模块化、可扩展的工具箱。
 
 ## 📦 已整合模块
