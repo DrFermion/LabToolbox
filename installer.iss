@@ -23,7 +23,7 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#MyAppExeName}
-VersionInfoVersion=0.1.0
+VersionInfoVersion={#MyAppVersion}
 VersionInfoProductName=LabToolbox
 
 [Languages]

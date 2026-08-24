@@ -54,7 +54,10 @@ jobs:
           }
           if (-not $iscc) { Write-Error "ISCC.exe not found"; exit 1 }
           Write-Output "ISCC: $($iscc.FullName)"
-          & $iscc.FullName "installer.iss"
+          # 版本号从 tag 提取 (v0.1.4 -> 0.1.4), 传给 iscc 的 MyAppVersion
+          $tagVer = $env:GITHUB_REF_NAME -replace '^v', ''
+          Write-Output "安装包版本: $tagVer"
+          & $iscc.FullName "/DMyAppVersion=$tagVer" "installer.iss"
           if ($LASTEXITCODE -ne 0) { Write-Error "ISCC failed with exit code $LASTEXITCODE"; exit $LASTEXITCODE }
           Get-ChildItem installer/*.exe | ForEach-Object { Write-Output "INSTALLER: $($_.FullName) ($([math]::Round($_.Length/1MB,1)) MB)" }
 
