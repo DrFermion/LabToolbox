@@ -19,6 +19,9 @@ pip install -e .
 # 或带图像处理依赖
 pip install -e ".[image]"
 
+# 🖥️ 图形界面 (推荐! 点点点就能用)
+python -m labtoolbox.gui
+
 # 命令行入口
 labtoolbox --help
 labtoolbox growth-curve --data data/growth_Ecoli.xlsx
@@ -27,6 +30,22 @@ labtoolbox xdlvo --config data/xdlvo_inputs.csv
 labtoolbox livedead --file data/livedead.xlsx --group 5%F-DLC
 labtoolbox contact-angle --file data/contact_angles.csv
 ```
+
+## 🖥️ GUI 界面 (tkinter, 零额外依赖)
+
+```
+🧪 实验室工具箱 LabToolbox
+┌──────────────────────────────────┐
+│ [📈 生长曲线] [🔬 LIPSS/DLOA] [🧫 XDLVO] [🦠 LIVE/DEAD] [💧 接触角] │
+│                                                                    │
+│  每个标签页 = 一个模块的配置面板                                   │
+│  (选文件/填参数 → 点"运行" → 结果自动输出)                        │
+└──────────────────────────────────┘
+```
+
+- 启动: `python -m labtoolbox.gui`
+- 每个模块独立标签页, 参数可视化填写
+- 分析结果自动保存到输出目录, 完成弹窗提示
 
 ## 🧩 模块化设计 (为扩展而生)
 
