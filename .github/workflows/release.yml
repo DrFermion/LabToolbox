@@ -14,10 +14,10 @@ jobs:
         include:
           - os: windows-latest
             artifact: LabToolbox-Windows
-            ext: exe
+            zipname: LabToolbox-Windows
           - os: macos-latest
             artifact: LabToolbox-macOS
-            ext: app
+            zipname: LabToolbox-macOS
 
     runs-on: ${{ matrix.os }}
 
@@ -31,32 +31,30 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install pyinstaller numpy scipy matplotlib pandas openpyxl statsmodels
-
-      - name: Install Windows image deps
-        if: runner.os == 'Windows'
-        run: pip install opencv-python Pillow
+          pip install pyinstaller numpy scipy matplotlib pandas openpyxl statsmodels opencv-python Pillow
 
       - name: Build with PyInstaller
         run: pyinstaller labtoolbox.spec --noconfirm
 
       - name: Create zip (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          Compress-Archive -Path dist/LabToolbox/* -DestinationPath dist/LabToolbox-Windows.zip -Force
+          Compress-Archive -Path dist/LabToolbox/* -DestinationPath dist/${{ matrix.zipname }}.zip -Force
 
       - name: Create zip (macOS)
         if: runner.os == 'macOS'
+        shell: bash
         run: |
           cd dist
-          zip -r LabToolbox-macOS.zip LabToolbox.app
+          zip -r ${{ matrix.zipname }}.zip LabToolbox.app
           cd ..
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: dist/LabToolbox-${{ matrix.artifact }}.zip
+          path: dist/${{ matrix.zipname }}.zip
           if-no-files-found: error
 
   release:
@@ -73,7 +71,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: LabToolbox ${{ github.ref_name }}
+          name: labtoolbox ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
           draft: false
           prerelease: false
           generate_release_notes: true
