@@ -16,6 +16,7 @@ from labtoolbox.lipss_dloa import run as dloa_run
 from labtoolbox.xdlvo import run as xdlvo_run
 from labtoolbox.livedead import run as ld_run
 from labtoolbox.contact_angle import run as ca_run
+from labtoolbox.livedead_cellcounter import run as ldc_run
 from labtoolbox.i18n import tr
 
 
@@ -187,6 +188,7 @@ class LabToolboxApp:
         self._build_xdlvo_tab()
         self._build_livedead_tab()
         self._build_contact_tab()
+        self._build_livedead_counter_tab()
 
     def _build_growth_tab(self):
         tab = ttk.Frame(self.notebook)
@@ -342,6 +344,49 @@ class LabToolboxApp:
                              ca_run, theta1=float(self.ca_t1.get()),
                              theta2=float(self.ca_t2.get()),
                              liquid1=self.ca_l1.get(), liquid2=self.ca_l2.get()))
+
+    def _build_livedead_counter_tab(self):
+        """荧光显微镜 LIVE/DEAD 细胞计数 (repeat 文件夹结构)"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text=tr("🔬 LIVE/DEAD 细胞计数", self.lang))
+        inner = ttk.LabelFrame(tab, text=tr(
+            "荧光图像计数: repeat1/2/3 → 1h/3h → area-channelN", self.lang))
+        inner.pack(fill="both", expand=True, padx=10, pady=10)
+
+        self.ldc_folder = tk.StringVar()
+        self._folder_row(inner, "图像根文件夹", self.ldc_folder)
+
+        # 结构说明
+        tip = ttk.Label(inner, foreground="#a6adc8", wraplength=650, justify="left",
+                        text=tr("结构: 根文件夹/repeat1/1h/1-g1.tif (g=活菌) + 1-r1.tif (r=死菌)\n"
+                                "文件名: {区域}-{g|r}{编号}, 区域 c=Control, 1/2/3=测试区", self.lang))
+        tip.pack(fill="x", padx=8, pady=4)
+
+        # 参数 (可调)
+        row = ttk.Frame(inner); row.pack(fill="x", pady=3)
+        ttk.Label(row, text=tr("最小面积(px)", self.lang), width=14).pack(side="left")
+        self.ldc_min = tk.StringVar(value="4")
+        ttk.Entry(row, textvariable=self.ldc_min, width=8).pack(side="left")
+        ttk.Label(row, text=tr("圆形度", self.lang), width=10).pack(side="left", padx=(10, 0))
+        self.ldc_round = tk.StringVar(value="0.4")
+        ttk.Entry(row, textvariable=self.ldc_round, width=8).pack(side="left")
+        ttk.Label(row, text=tr("绿阈值", self.lang), width=10).pack(side="left", padx=(10, 0))
+        self.ldc_gt = tk.StringVar(value="15")
+        ttk.Entry(row, textvariable=self.ldc_gt, width=8).pack(side="left")
+        ttk.Label(row, text=tr("红阈值", self.lang), width=10).pack(side="left", padx=(10, 0))
+        self.ldc_rt = tk.StringVar(value="15")
+        ttk.Entry(row, textvariable=self.ldc_rt, width=8).pack(side="left")
+
+        self.ldc_out = tk.StringVar(value="output")
+        self._output_row(inner, self.ldc_out)
+        self._run_button(inner, "🚀 运行细胞计数分析",
+                         lambda: self._run_async(
+                             ldc_run, folder=self.ldc_folder.get(),
+                             output_dir=self.ldc_out.get(),
+                             min_size=int(self.ldc_min.get()),
+                             min_roundness=float(self.ldc_round.get()),
+                             green_thresh=int(self.ldc_gt.get()),
+                             red_thresh=int(self.ldc_rt.get())))
 
     def run(self):
         self.root.mainloop()
