@@ -1,0 +1,53 @@
+# -*- coding: utf-8 -*-
+"""GUI 多语言支持: 中文 / English"""
+
+# 翻译字典: zh -> en
+TRANSLATIONS = {
+    "🧪 实验室工具箱 LabToolbox": "🧪 Lab Toolbox",
+    "实验室工具箱 LabToolbox": "Lab Toolbox LabToolbox",
+    "📈 生长曲线": "📈 Growth Curve",
+    "🔬 LIPSS/DLOA": "🔬 LIPSS/DLOA",
+    "🧫 XDLVO": "🧫 XDLVO",
+    "🦠 LIVE/DEAD": "🦠 LIVE/DEAD",
+    "💧 接触角/表面能": "💧 Contact Angle",
+    "细菌生长曲线拟合 (OD600 / CFU)": "Bacterial growth curve fitting (OD600 / CFU)",
+    "数据文件": "Data file",
+    "浏览...": "Browse...",
+    "输出目录": "Output dir",
+    "🚀 运行生长曲线分析": "🚀 Run growth curve",
+    "SEM 图像 LIPSS 周期与取向角分析": "SEM image LIPSS period & orientation (DLOA)",
+    "SEM 图像文件夹": "SEM image folder",
+    "每微米像素数": "Pixels per µm",
+    "(31.25 nm/px = 32)": "(31.25 nm/px = 32)",
+    "🚀 运行 DLOA 分析": "🚀 Run DLOA",
+    "XDLVO 细菌粘附预测": "XDLVO bacterial adhesion prediction",
+    "θ 二碘甲烷 (°)": "θ diiodomethane (°)",
+    "θ 水 (°)": "θ water (°)",
+    "θ 甲酰胺 (°)": "θ formamide (°)",
+    "细菌半径 (nm)": "Bacteria radius (nm)",
+    "离子强度 (M)": "Ionic strength (M)",
+    "🚀 运行 XDLVO 分析": "🚀 Run XDLVO",
+    "LIVE/DEAD 存活率统计 + 双因素 ANOVA": "LIVE/DEAD viability + two-way ANOVA",
+    "工作表名 (可选)": "Sheet name (optional)",
+    "🚀 运行 LIVE/DEAD 分析": "🚀 Run LIVE/DEAD",
+    "OWRK 表面自由能计算": "OWRK surface free energy",
+    "液体1 接触角 (°)": "Liquid 1 angle (°)",
+    "液体2 接触角 (°)": "Liquid 2 angle (°)",
+    "液体1": "Liquid 1",
+    "液体2": "Liquid 2",
+    "🚀 计算表面能": "🚀 Compute SFE",
+    "就绪 - 选择一个模块配置并运行": "Ready - pick a module and run",
+    "⏳ 运行中...": "⏳ Running...",
+    "✅ 完成! 输出见输出目录": "✅ Done! Output saved",
+    "分析完成!": "Analysis complete!",
+    "图表: ": "Figure: ",
+    "错误": "Error",
+    "完成": "Done",
+}
+
+
+def tr(text, lang="zh"):
+    """翻译: lang='zh' 返回原文, lang='en' 返回英文"""
+    if lang == "en" and text in TRANSLATIONS:
+        return TRANSLATIONS[text]
+    return text

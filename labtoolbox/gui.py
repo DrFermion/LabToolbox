@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-实验室工具箱 GUI 界面 (tkinter)
+实验室工具箱 GUI 界面 (tkinter) - 支持中英文切换
 - 5 个模块, 每个都有独立配置面板
+- 顶部 中/EN 切换按钮
 - 统一入口: python -m labtoolbox.gui
 """
 import os
@@ -15,13 +16,17 @@ from labtoolbox.lipss_dloa import run as dloa_run
 from labtoolbox.xdlvo import run as xdlvo_run
 from labtoolbox.livedead import run as ld_run
 from labtoolbox.contact_angle import run as ca_run
+from labtoolbox.i18n import tr
 
 
 class LabToolboxApp:
     def __init__(self):
+        self.lang = "zh"  # 'zh' | 'en'
+        self._widgets = []  # (widget, text_key) 用于语言切换时刷新
+
         self.root = tk.Tk()
         self.root.title("实验室工具箱 LabToolbox")
-        self.root.geometry("760x560")
+        self.root.geometry("780x580")
         self.root.configure(bg="#1e1e2e")
         self.root.attributes("-topmost", False)
 
@@ -43,84 +48,129 @@ class LabToolboxApp:
                         font=("Microsoft YaHei UI", 10), padding=(10, 6))
         style.map("TButton", background=[("active", "#585b70")])
 
-        # 标题
-        title = tk.Label(self.root, text="🧪 实验室工具箱 LabToolbox",
-                         bg="#1e1e2e", fg="#89b4fa",
-                         font=("Microsoft YaHei UI", 16, "bold"), pady=10)
-        title.pack(fill="x")
+        # 顶部栏: 标题 + 语言切换
+        header = tk.Frame(self.root, bg="#1e1e2e")
+        header.pack(fill="x", padx=10, pady=(8, 2))
+
+        self.title_label = tk.Label(header, text=tr("🧪 实验室工具箱 LabToolbox", self.lang),
+                                    bg="#1e1e2e", fg="#89b4fa",
+                                    font=("Microsoft YaHei UI", 16, "bold"))
+        self.title_label.pack(side="left")
+
+        self.lang_btn = tk.Button(header, text="EN", command=self.toggle_lang,
+                                  bg="#45475a", fg="#cdd6f4", relief="flat",
+                                  activebackground="#89b4fa", activeforeground="#11111b",
+                                  font=("Microsoft YaHei UI", 10, "bold"),
+                                  cursor="hand2", padx=12, pady=2)
+        self.lang_btn.pack(side="right")
 
         # 标签页
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True, padx=10, pady=5)
 
+        self._build_all_tabs()
+
+        # 底部状态栏
+        self.status_var = tk.StringVar(value=tr("就绪 - 选择一个模块配置并运行", self.lang))
+        status = tk.Label(self.root, textvariable=self.status_var, bg="#1e1e2e",
+                          fg="#a6e3a1", font=("Microsoft YaHei UI", 9), pady=6)
+        status.pack(fill="x")
+
+    # ---------- 语言切换 ----------
+    def toggle_lang(self):
+        self.lang = "en" if self.lang == "zh" else "zh"
+        self.lang_btn.config(text="中" if self.lang == "en" else "EN")
+        self._refresh_all_texts()
+        self.status_var.set(tr("就绪 - 选择一个模块配置并运行", self.lang))
+
+    def _refresh_all_texts(self):
+        """刷新所有已注册控件的文本"""
+        self.title_label.config(text=tr("🧪 实验室工具箱 LabToolbox", self.lang))
+        for widget, key in self._widgets:
+            try:
+                widget.config(text=tr(key, self.lang))
+            except Exception:
+                pass
+
+    def _T(self, text):
+        """注册并返回翻译文本 (用于 Label/Button/Notebook tab)"""
+        return tr(text, self.lang)
+
+    # ---------- 通用组件 ----------
+    def _file_row(self, parent, label, var, filetypes):
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=4)
+        lbl = ttk.Label(row, text=tr(label, self.lang), width=18)
+        lbl.pack(side="left")
+        self._widgets.append((lbl, label))
+        ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True, padx=4)
+        btn = ttk.Button(row, text=tr("浏览...", self.lang),
+                         command=lambda: var.set(filedialog.askopenfilename(filetypes=filetypes)))
+        btn.pack(side="left")
+        self._widgets.append((btn, "浏览..."))
+        return row
+
+    def _folder_row(self, parent, label, var):
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=4)
+        lbl = ttk.Label(row, text=tr(label, self.lang), width=18)
+        lbl.pack(side="left")
+        self._widgets.append((lbl, label))
+        ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True, padx=4)
+        btn = ttk.Button(row, text=tr("浏览...", self.lang),
+                         command=lambda: var.set(filedialog.askdirectory()))
+        btn.pack(side="left")
+        self._widgets.append((btn, "浏览..."))
+        return row
+
+    def _output_row(self, parent, var):
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=4)
+        lbl = ttk.Label(row, text=tr("输出目录", self.lang), width=18)
+        lbl.pack(side="left")
+        self._widgets.append((lbl, "输出目录"))
+        ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True, padx=4)
+        btn = ttk.Button(row, text=tr("浏览...", self.lang),
+                         command=lambda: var.set(filedialog.askdirectory()))
+        btn.pack(side="left")
+        self._widgets.append((btn, "浏览..."))
+        return row
+
+    def _run_button(self, parent, text, callback):
+        btn = ttk.Button(parent, text=tr(text, self.lang), command=callback)
+        btn.pack(pady=10)
+        self._widgets.append((btn, text))
+        return btn
+
+    def _run_async(self, fn, *args):
+        """后台线程运行, 完成后更新状态"""
+        self.status_var.set(tr("⏳ 运行中...", self.lang))
+        def worker():
+            try:
+                result = fn(*args)
+                self.root.after(0, lambda: self.status_var.set(tr("✅ 完成! 输出见输出目录", self.lang)))
+                if isinstance(result, dict) and "figure" in result:
+                    self.root.after(0, lambda: messagebox.showinfo(
+                        tr("完成", self.lang),
+                        f"{tr('分析完成!', self.lang)}\n{tr('图表: ', self.lang)}{result['figure']}"))
+            except Exception as e:
+                self.root.after(0, lambda: self.status_var.set(f"❌ {e}"))
+                self.root.after(0, lambda: messagebox.showerror(tr("错误", self.lang), str(e)))
+        threading.Thread(target=worker, daemon=True).start()
+
+    # ---------- 标签页 ----------
+    def _build_all_tabs(self):
         self._build_growth_tab()
         self._build_dloa_tab()
         self._build_xdlvo_tab()
         self._build_livedead_tab()
         self._build_contact_tab()
 
-        # 底部状态栏
-        self.status_var = tk.StringVar(value="就绪 - 选择一个模块配置并运行")
-        status = tk.Label(self.root, textvariable=self.status_var, bg="#1e1e2e",
-                          fg="#a6e3a1", font=("Microsoft YaHei UI", 9), pady=6)
-        status.pack(fill="x")
-
-    # ---------- 通用组件 ----------
-    def _file_row(self, parent, label, var, filetypes):
-        row = ttk.Frame(parent)
-        row.pack(fill="x", pady=4)
-        ttk.Label(row, text=label, width=16).pack(side="left")
-        ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True, padx=4)
-        ttk.Button(row, text="浏览...", command=lambda: var.set(
-            filedialog.askopenfilename(filetypes=filetypes)
-        )).pack(side="left")
-        return row
-
-    def _folder_row(self, parent, label, var):
-        row = ttk.Frame(parent)
-        row.pack(fill="x", pady=4)
-        ttk.Label(row, text=label, width=16).pack(side="left")
-        ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True, padx=4)
-        ttk.Button(row, text="浏览...", command=lambda: var.set(
-            filedialog.askdirectory()
-        )).pack(side="left")
-        return row
-
-    def _output_row(self, parent, var):
-        row = ttk.Frame(parent)
-        row.pack(fill="x", pady=4)
-        ttk.Label(row, text="输出目录", width=16).pack(side="left")
-        ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True, padx=4)
-        ttk.Button(row, text="浏览...", command=lambda: var.set(
-            filedialog.askdirectory()
-        )).pack(side="left")
-        return row
-
-    def _run_button(self, parent, text, callback):
-        btn = ttk.Button(parent, text=text, command=callback)
-        btn.pack(pady=10)
-        return btn
-
-    def _run_async(self, fn, *args):
-        """后台线程运行, 完成后更新状态"""
-        self.status_var.set("⏳ 运行中...")
-        def worker():
-            try:
-                result = fn(*args)
-                self.root.after(0, lambda: self.status_var.set("✅ 完成! 输出见输出目录"))
-                if isinstance(result, dict) and "figure" in result:
-                    self.root.after(0, lambda: messagebox.showinfo(
-                        "完成", f"分析完成!\n图表: {result['figure']}"))
-            except Exception as e:
-                self.root.after(0, lambda: self.status_var.set(f"❌ 错误: {e}"))
-                self.root.after(0, lambda: messagebox.showerror("错误", str(e)))
-        threading.Thread(target=worker, daemon=True).start()
-
-    # ---------- 生长曲线 ----------
     def _build_growth_tab(self):
         tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="📈 生长曲线")
-        inner = ttk.LabelFrame(tab, text="细菌生长曲线拟合 (OD600 / CFU)")
+        self.notebook.add(tab, text=tr("📈 生长曲线", self.lang))
+        self._widgets.append((tab, "📈 生长曲线"))  # notebook tab 文本单独处理
+        inner = ttk.LabelFrame(tab, text=tr("细菌生长曲线拟合 (OD600 / CFU)", self.lang))
         inner.pack(fill="both", expand=True, padx=10, pady=10)
 
         self.gc_file = tk.StringVar()
@@ -132,18 +182,19 @@ class LabToolboxApp:
                          lambda: self._run_async(gc_run, path=self.gc_file.get(),
                                                  output_dir=self.gc_out.get()))
 
-    # ---------- LIPSS/DLOA ----------
     def _build_dloa_tab(self):
         tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="🔬 LIPSS/DLOA")
-        inner = ttk.LabelFrame(tab, text="SEM 图像 LIPSS 周期与取向角分析")
+        self.notebook.add(tab, text=tr("🔬 LIPSS/DLOA", self.lang))
+        inner = ttk.LabelFrame(tab, text=tr("SEM 图像 LIPSS 周期与取向角分析", self.lang))
         inner.pack(fill="both", expand=True, padx=10, pady=10)
 
         self.dloa_folder = tk.StringVar()
         self._folder_row(inner, "SEM 图像文件夹", self.dloa_folder)
         row = ttk.Frame(inner)
         row.pack(fill="x", pady=4)
-        ttk.Label(row, text="每微米像素数", width=16).pack(side="left")
+        lbl = ttk.Label(row, text=tr("每微米像素数", self.lang), width=18)
+        lbl.pack(side="left")
+        self._widgets.append((lbl, "每微米像素数"))
         self.dloa_ppm = tk.StringVar(value="32.0")
         ttk.Entry(row, textvariable=self.dloa_ppm, width=12).pack(side="left", padx=4)
         ttk.Label(row, text="(31.25 nm/px = 32)", foreground="#a6adc8").pack(side="left")
@@ -155,33 +206,36 @@ class LabToolboxApp:
                              output_dir=self.dloa_out.get(),
                              pixel_size_um=1.0 / float(self.dloa_ppm.get())))
 
-    # ---------- XDLVO ----------
     def _build_xdlvo_tab(self):
         tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="🧫 XDLVO")
-        inner = ttk.LabelFrame(tab, text="XDLVO 细菌粘附预测")
+        self.notebook.add(tab, text=tr("🧫 XDLVO", self.lang))
+        inner = ttk.LabelFrame(tab, text=tr("XDLVO 细菌粘附预测", self.lang))
         inner.pack(fill="both", expand=True, padx=10, pady=10)
 
         row = ttk.Frame(inner); row.pack(fill="x", pady=4)
-        ttk.Label(row, text="θ 二碘甲烷 (°)", width=16).pack(side="left")
+        lbl = ttk.Label(row, text=tr("θ 二碘甲烷 (°)", self.lang), width=18)
+        lbl.pack(side="left"); self._widgets.append((lbl, "θ 二碘甲烷 (°)"))
         self.xd_t1 = tk.StringVar(value="48.2")
         ttk.Entry(row, textvariable=self.xd_t1, width=10).pack(side="left")
 
         row = ttk.Frame(inner); row.pack(fill="x", pady=4)
-        ttk.Label(row, text="θ 水 (°)", width=16).pack(side="left")
+        lbl = ttk.Label(row, text=tr("θ 水 (°)", self.lang), width=18)
+        lbl.pack(side="left"); self._widgets.append((lbl, "θ 水 (°)"))
         self.xd_t2 = tk.StringVar(value="72.3")
         ttk.Entry(row, textvariable=self.xd_t2, width=10).pack(side="left")
 
         row = ttk.Frame(inner); row.pack(fill="x", pady=4)
-        ttk.Label(row, text="θ 甲酰胺 (°)", width=16).pack(side="left")
+        lbl = ttk.Label(row, text=tr("θ 甲酰胺 (°)", self.lang), width=18)
+        lbl.pack(side="left"); self._widgets.append((lbl, "θ 甲酰胺 (°)"))
         self.xd_t3 = tk.StringVar(value="61.5")
         ttk.Entry(row, textvariable=self.xd_t3, width=10).pack(side="left")
 
         row = ttk.Frame(inner); row.pack(fill="x", pady=4)
-        ttk.Label(row, text="细菌半径 (nm)", width=16).pack(side="left")
+        lbl = ttk.Label(row, text=tr("细菌半径 (nm)", self.lang), width=18)
+        lbl.pack(side="left"); self._widgets.append((lbl, "细菌半径 (nm)"))
         self.xd_r = tk.StringVar(value="500")
         ttk.Entry(row, textvariable=self.xd_r, width=10).pack(side="left")
-        ttk.Label(row, text="  离子强度 (M)", foreground="#a6adc8").pack(side="left", padx=(12, 0))
+        ttk.Label(row, text=tr("离子强度 (M)", self.lang), foreground="#a6adc8").pack(side="left", padx=(12, 0))
         self.xd_i = tk.StringVar(value="0.01")
         ttk.Entry(row, textvariable=self.xd_i, width=10).pack(side="left")
 
@@ -197,18 +251,18 @@ class LabToolboxApp:
                              I_M=float(self.xd_i.get()),
                              output_dir=self.xd_out.get()))
 
-    # ---------- LIVE/DEAD ----------
     def _build_livedead_tab(self):
         tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="🦠 LIVE/DEAD")
-        inner = ttk.LabelFrame(tab, text="LIVE/DEAD 存活率统计 + 双因素 ANOVA")
+        self.notebook.add(tab, text=tr("🦠 LIVE/DEAD", self.lang))
+        inner = ttk.LabelFrame(tab, text=tr("LIVE/DEAD 存活率统计 + 双因素 ANOVA", self.lang))
         inner.pack(fill="both", expand=True, padx=10, pady=10)
 
         self.ld_file = tk.StringVar()
         self._file_row(inner, "数据文件", self.ld_file,
                        [("Excel/CSV", "*.xlsx *.xls *.csv")])
         row = ttk.Frame(inner); row.pack(fill="x", pady=4)
-        ttk.Label(row, text="工作表名 (可选)", width=16).pack(side="left")
+        lbl = ttk.Label(row, text=tr("工作表名 (可选)", self.lang), width=18)
+        lbl.pack(side="left"); self._widgets.append((lbl, "工作表名 (可选)"))
         self.ld_sheet = tk.StringVar()
         ttk.Entry(row, textvariable=self.ld_sheet, width=20).pack(side="left", padx=4)
         self.ld_out = tk.StringVar(value="output")
@@ -219,27 +273,30 @@ class LabToolboxApp:
                              sheet=self.ld_sheet.get() or None,
                              output_dir=self.ld_out.get()))
 
-    # ---------- 接触角 ----------
     def _build_contact_tab(self):
         tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="💧 接触角/表面能")
-        inner = ttk.LabelFrame(tab, text="OWRK 表面自由能计算")
+        self.notebook.add(tab, text=tr("💧 接触角/表面能", self.lang))
+        inner = ttk.LabelFrame(tab, text=tr("OWRK 表面自由能计算", self.lang))
         inner.pack(fill="both", expand=True, padx=10, pady=10)
 
         row = ttk.Frame(inner); row.pack(fill="x", pady=4)
-        ttk.Label(row, text="液体1 接触角 (°)", width=16).pack(side="left")
+        lbl = ttk.Label(row, text=tr("液体1 接触角 (°)", self.lang), width=18)
+        lbl.pack(side="left"); self._widgets.append((lbl, "液体1 接触角 (°)"))
         self.ca_t1 = tk.StringVar(value="72.3")
         ttk.Entry(row, textvariable=self.ca_t1, width=10).pack(side="left")
-        ttk.Label(row, text="液体1", foreground="#a6adc8").pack(side="left", padx=(12, 0))
+        lbl2 = ttk.Label(row, text=tr("液体1", self.lang), foreground="#a6adc8")
+        lbl2.pack(side="left", padx=(12, 0)); self._widgets.append((lbl2, "液体1"))
         self.ca_l1 = tk.StringVar(value="water")
         ttk.Combobox(row, textvariable=self.ca_l1, width=14,
                      values=["water", "diiodomethane", "formamide", "glycerol", "ethylene_glycol"]).pack(side="left")
 
         row = ttk.Frame(inner); row.pack(fill="x", pady=4)
-        ttk.Label(row, text="液体2 接触角 (°)", width=16).pack(side="left")
+        lbl = ttk.Label(row, text=tr("液体2 接触角 (°)", self.lang), width=18)
+        lbl.pack(side="left"); self._widgets.append((lbl, "液体2 接触角 (°)"))
         self.ca_t2 = tk.StringVar(value="48.2")
         ttk.Entry(row, textvariable=self.ca_t2, width=10).pack(side="left")
-        ttk.Label(row, text="液体2", foreground="#a6adc8").pack(side="left", padx=(12, 0))
+        lbl2 = ttk.Label(row, text=tr("液体2", self.lang), foreground="#a6adc8")
+        lbl2.pack(side="left", padx=(12, 0)); self._widgets.append((lbl2, "液体2"))
         self.ca_l2 = tk.StringVar(value="diiodomethane")
         ttk.Combobox(row, textvariable=self.ca_l2, width=14,
                      values=["water", "diiodomethane", "formamide", "glycerol", "ethylene_glycol"]).pack(side="left")
