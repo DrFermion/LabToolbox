@@ -1,0 +1,55 @@
+# 实验室工具箱 (LabToolbox)
+
+Ruinong Pan 的生物医学实验室分析工具集 — 将 OneDrive 共享文件夹中的零散程序整合为统一、模块化、可扩展的工具箱。
+
+## 📦 已整合模块
+
+| 模块 | 功能 | 依赖 |
+|---|---|---|
+| `growth_curve` | 细菌生长曲线拟合与 OD/CFU 分析 (E. coli, S. aureus) | numpy, scipy, matplotlib |
+| `lipss_dloa` | SEM 图像 LIPSS 周期/取向角分析 (DLOA) | numpy, scipy, opencv, matplotlib |
+| `xdlvo` | XDLVO 理论细菌粘附预测 (接触角 → 表面能 → ΔG) | numpy, scipy |
+| `livedead` | LIVE/DEAD 荧光统计 (存活率, 双因素 ANOVA) | pandas, statsmodels, openpyxl |
+| `contact_angle` | 接触角/表面自由能计算 (OWRK 等) | numpy, scipy |
+
+## 🚀 快速开始
+
+```bash
+pip install -e .
+# 或带图像处理依赖
+pip install -e ".[image]"
+
+# 命令行入口
+labtoolbox --help
+labtoolbox growth-curve --data data/growth_Ecoli.xlsx
+labtoolbox lipss-dloa --folder data/sem_images/
+labtoolbox xdlvo --config data/xdlvo_inputs.csv
+labtoolbox livedead --file data/livedead.xlsx --group 5%F-DLC
+labtoolbox contact-angle --file data/contact_angles.csv
+```
+
+## 🧩 模块化设计 (为扩展而生)
+
+```
+labtoolbox/
+├── common/          # 共享工具: 文件 IO, 拟合, 统计, 绘图
+├── growth_curve/    # 生长曲线
+├── lipss_dloa/      # LIPSS/DLOA
+├── xdlvo/           # XDLVO
+├── livedead/        # LIVE/DEAD
+├── contact_angle/   # 接触角/表面能
+├── cli.py           # 统一命令行入口
+└── __init__.py
+```
+
+**如何添加新模块**: 在 `labtoolbox/` 下新建包 (如 `raman/`), 实现 `run(config) -> dict` 接口, 在 `cli.py` 注册子命令即可 — 无需改动其他模块。
+
+## 🔬 数据说明
+
+- 原始数据保留在 OneDrive 共享文件夹 (不提交到仓库)
+- `data/examples/` 提供示例数据 (脱敏)
+- 所有模块支持 Excel/CSV 输入, 图表输出到 `output/`
+
+## 📄 License
+
+MIT (待定)

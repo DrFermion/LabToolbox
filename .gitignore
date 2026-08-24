@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# 输出
+output/
+*.png
+
+# IDE
+.vscode/
+.idea/
+
+# 系统
+Thumbs.db
+.DS_Store
+
+# 数据 (原始数据保留在 OneDrive, 不入库; 示例数据除外)
+data/raw/
+# 示例数据允许入库
+!data/examples/
