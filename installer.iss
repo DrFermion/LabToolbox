@@ -1,7 +1,9 @@
 ; LabToolbox Inno Setup 安装向导
 ; 用法: iscc installer.iss (GitHub Actions 中调用)
+#ifndef MyAppVersion
+  #define MyAppVersion "0.1.1"
+#endif
 #define MyAppName "LabToolbox"
-#define MyAppVersion "0.1.0"
 #define MyAppExeName "LabToolbox.exe"
 #define MyAppPublisher "DrFermion"
 
@@ -26,7 +28,6 @@ VersionInfoProductName=LabToolbox
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
