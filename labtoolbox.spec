@@ -46,7 +46,7 @@ a = Analysis(
     ],
     hookspath=[],
     runtime_hooks=[],
-    excludes=["tkinter.test", "pydoc"],   # 注意: 不能排除 unittest (pyparsing 依赖)
+    excludes=["tkinter.test"],   # 注意: 不能排除 unittest (pyparsing 依赖); 也不能排除 pydoc (scipy._lib._docscrape 运行时 import, 排除会导致启动崩溃 "No module named 'pydoc'")
     noarchive=False,
 )
 
