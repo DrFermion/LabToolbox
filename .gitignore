@@ -11,6 +11,11 @@ dist/
 output/
 *.png
 
+# 构建产物
+build/
+dist/
+*.spec.bak
+
 # IDE
 .vscode/
 .idea/

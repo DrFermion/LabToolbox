@@ -1,0 +1,82 @@
+name: Build & Release (Win + macOS)
+
+on:
+  push:
+    tags:
+      - "v*"          # 推送 v0.1.0 等标签时触发
+  workflow_dispatch:  # 也支持手动触发
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: LabToolbox-Windows
+            ext: exe
+          - os: macos-latest
+            artifact: LabToolbox-macOS
+            ext: app
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pyinstaller numpy scipy matplotlib pandas openpyxl statsmodels
+
+      - name: Install Windows image deps
+        if: runner.os == 'Windows'
+        run: pip install opencv-python Pillow
+
+      - name: Build with PyInstaller
+        run: pyinstaller labtoolbox.spec --noconfirm
+
+      - name: Create zip (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Compress-Archive -Path dist/LabToolbox/* -DestinationPath dist/LabToolbox-Windows.zip -Force
+
+      - name: Create zip (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          zip -r LabToolbox-macOS.zip LabToolbox.app
+          cd ..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/LabToolbox-${{ matrix.artifact }}.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: LabToolbox ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            artifacts/LabToolbox-Windows/LabToolbox-Windows.zip
+            artifacts/LabToolbox-macOS/LabToolbox-macOS.zip
