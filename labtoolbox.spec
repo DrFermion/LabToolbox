@@ -46,7 +46,7 @@ a = Analysis(
     ],
     hookspath=[],
     runtime_hooks=[],
-    excludes=["tkinter.test", "unittest", "pydoc"],
+    excludes=["tkinter.test", "pydoc"],   # 注意: 不能排除 unittest (pyparsing 依赖)
     noarchive=False,
 )
 

@@ -36,11 +36,33 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller labtoolbox.spec --noconfirm
 
+      # ---------- Windows: Inno Setup 安装向导 ----------
+      - name: Install Inno Setup (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          echo "ISCC=$(Get-Command ISCC.exe | Select-Object -ExpandProperty Source)" >> $env:GITHUB_ENV
+
+      - name: Build installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "$env:ISCC" installer.iss /DMyAppVersion=${{ github.ref_name }}
+          Get-ChildItem installer/*.exe | ForEach-Object { Write-Output "INSTALLER: $($_.FullName) ($([math]::Round($_.Length/1MB,1)) MB)" }
+
       - name: Create zip (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Compress-Archive -Path dist/LabToolbox/* -DestinationPath dist/${{ matrix.zipname }}.zip -Force
+
+      # ---------- macOS: DMG ----------
+      - name: Create DMG (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          hdiutil create -volname "LabToolbox" -srcfolder dist/LabToolbox.app -ov -format UDZO dist/${{ matrix.zipname }}.dmg
 
       - name: Create zip (macOS)
         if: runner.os == 'macOS'
@@ -50,12 +72,15 @@ jobs:
           zip -r ${{ matrix.zipname }}.zip LabToolbox.app
           cd ..
 
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: dist/${{ matrix.zipname }}.zip
-          if-no-files-found: error
+          path: |
+            dist/${{ matrix.zipname }}.zip
+            dist/${{ matrix.zipname }}.dmg
+            installer/*.exe
+          if-no-files-found: warn
 
   release:
     needs: build
@@ -68,6 +93,9 @@ jobs:
         with:
           path: artifacts
 
+      - name: List artifacts
+        run: find artifacts -type f | head -20
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -78,4 +106,6 @@ jobs:
           generate_release_notes: true
           files: |
             artifacts/LabToolbox-Windows/LabToolbox-Windows.zip
+            artifacts/LabToolbox-Windows/*.exe
             artifacts/LabToolbox-macOS/LabToolbox-macOS.zip
+            artifacts/LabToolbox-macOS/LabToolbox-macOS.dmg
