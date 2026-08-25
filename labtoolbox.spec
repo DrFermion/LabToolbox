@@ -20,8 +20,10 @@ for cand in [os.path.join(ROOT, "assets", "labtoolbox.ico"),
         break
 
 datas = []
-# 包含示例数据 (可选)
-# datas.append((os.path.join(ROOT, "data", "examples"), "data/examples"))
+# 范例表格 + 示例数据 (GUI "打开范例表格" 按钮依赖 examples/ 目录!)
+datas.append((os.path.join(ROOT, "examples"), "examples"))
+# CLI 示例数据 (可选, 解压后 data/examples/ 供命令行测试)
+datas.append((os.path.join(ROOT, "data", "examples"), "data/examples"))
 
 a = Analysis(
     [os.path.join(ROOT, "labtoolbox", "gui.py")],
@@ -33,6 +35,7 @@ a = Analysis(
         "labtoolbox.lipss_dloa",
         "labtoolbox.xdlvo",
         "labtoolbox.livedead",
+        "labtoolbox.livedead_cellcounter",
         "labtoolbox.contact_angle",
         "labtoolbox.common.io_utils",
         "labtoolbox.common.fitting",

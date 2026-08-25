@@ -24,6 +24,7 @@ class LabToolboxApp:
     def __init__(self):
         self.lang = "zh"  # 'zh' | 'en'
         self._widgets = []  # (widget, text_key) 用于语言切换时刷新
+        self._notebook_tabs = []  # (tab_frame, text_key) notebook 标签页标题
 
         self.root = tk.Tk()
         self.root.title("实验室工具箱 LabToolbox")
@@ -92,6 +93,12 @@ class LabToolboxApp:
                 widget.config(text=tr(key, self.lang))
             except Exception:
                 pass
+        # notebook 标签页标题需要专门 API 更新
+        for tab_widget, key in self._notebook_tabs:
+            try:
+                self.notebook.tab(self.notebook.index(tab_widget), text=tr(key, self.lang))
+            except Exception:
+                pass
 
     def _T(self, text):
         """注册并返回翻译文本 (用于 Label/Button/Notebook tab)"""
@@ -154,11 +161,20 @@ class LabToolboxApp:
     def _open_example_file(self, name):
         """用系统默认程序打开 examples 目录下的范例文件"""
         import subprocess
-        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                            "examples", name)
-        if not os.path.exists(path):
+        # 源码运行: 仓库根/examples; PyInstaller 打包: _MEIPASS/examples
+        candidates = []
+        if getattr(sys, "frozen", False):
+            candidates.append(sys._MEIPASS)  # type: ignore
+        candidates.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        path = None
+        for base in candidates:
+            p = os.path.join(base, "examples", name)
+            if os.path.exists(p):
+                path = p
+                break
+        if path is None:
             messagebox.showwarning(tr("提示", self.lang),
-                                   tr("范例文件不存在: ", self.lang) + path)
+                                   tr("范例文件不存在: ", self.lang) + " / ".join(candidates))
             return
         try:
             os.startfile(path)  # type: ignore
@@ -193,16 +209,18 @@ class LabToolboxApp:
     def _build_growth_tab(self):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text=tr("📈 生长曲线", self.lang))
-        self._widgets.append((tab, "📈 生长曲线"))  # notebook tab 文本单独处理
+        self._notebook_tabs.append((tab, "📈 生长曲线"))  # notebook tab 文本单独处理
         inner = ttk.LabelFrame(tab, text=tr("细菌生长曲线拟合 (OD600 / CFU)", self.lang))
         inner.pack(fill="both", expand=True, padx=10, pady=10)
+        self._widgets.append((inner, "细菌生长曲线拟合 (OD600 / CFU)"))
 
         self.gc_file = tk.StringVar()
         self._file_row(inner, "数据文件", self.gc_file,
                        [("Excel/CSV", "*.xlsx *.xls *.csv")])
         # 范例表格提示
         row = ttk.Frame(inner); row.pack(fill="x", pady=2)
-        ttk.Label(row, text=tr("范例: ", self.lang), foreground="#a6adc8").pack(side="left")
+        lbl = ttk.Label(row, text=tr("范例: ", self.lang), foreground="#a6adc8")
+        lbl.pack(side="left"); self._widgets.append((lbl, "范例: "))
         ttk.Label(row, text="time_min, od600, cfu_ml", foreground="#f9e2af").pack(side="left")
         btn = ttk.Button(row, text=tr("打开范例表格", self.lang), command=self._open_example)
         btn.pack(side="left", padx=8)
@@ -216,8 +234,10 @@ class LabToolboxApp:
     def _build_dloa_tab(self):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text=tr("🔬 LIPSS/DLOA", self.lang))
+        self._notebook_tabs.append((tab, "🔬 LIPSS/DLOA"))
         inner = ttk.LabelFrame(tab, text=tr("SEM 图像 LIPSS 周期与取向角分析", self.lang))
         inner.pack(fill="both", expand=True, padx=10, pady=10)
+        self._widgets.append((inner, "SEM 图像 LIPSS 周期与取向角分析"))
 
         self.dloa_folder = tk.StringVar()
         self._folder_row(inner, "SEM 图像文件夹", self.dloa_folder)
@@ -228,7 +248,8 @@ class LabToolboxApp:
         self._widgets.append((lbl, "每微米像素数"))
         self.dloa_ppm = tk.StringVar(value="32.0")
         ttk.Entry(row, textvariable=self.dloa_ppm, width=12).pack(side="left", padx=4)
-        ttk.Label(row, text="(31.25 nm/px = 32)", foreground="#a6adc8").pack(side="left")
+        lbl = ttk.Label(row, text=tr("(31.25 nm/px = 32)", self.lang), foreground="#a6adc8")
+        lbl.pack(side="left"); self._widgets.append((lbl, "(31.25 nm/px = 32)"))
         self.dloa_out = tk.StringVar(value="output")
         self._output_row(inner, self.dloa_out)
         self._run_button(inner, "🚀 运行 DLOA 分析",
@@ -240,8 +261,10 @@ class LabToolboxApp:
     def _build_xdlvo_tab(self):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text=tr("🧫 XDLVO", self.lang))
+        self._notebook_tabs.append((tab, "🧫 XDLVO"))
         inner = ttk.LabelFrame(tab, text=tr("XDLVO 细菌粘附预测", self.lang))
         inner.pack(fill="both", expand=True, padx=10, pady=10)
+        self._widgets.append((inner, "XDLVO 细菌粘附预测"))
 
         row = ttk.Frame(inner); row.pack(fill="x", pady=4)
         lbl = ttk.Label(row, text=tr("θ 二碘甲烷 (°)", self.lang), width=18)
@@ -266,7 +289,8 @@ class LabToolboxApp:
         lbl.pack(side="left"); self._widgets.append((lbl, "细菌半径 (nm)"))
         self.xd_r = tk.StringVar(value="500")
         ttk.Entry(row, textvariable=self.xd_r, width=10).pack(side="left")
-        ttk.Label(row, text=tr("离子强度 (M)", self.lang), foreground="#a6adc8").pack(side="left", padx=(12, 0))
+        lbl = ttk.Label(row, text=tr("离子强度 (M)", self.lang), foreground="#a6adc8")
+        lbl.pack(side="left", padx=(12, 0)); self._widgets.append((lbl, "离子强度 (M)"))
         self.xd_i = tk.StringVar(value="0.01")
         ttk.Entry(row, textvariable=self.xd_i, width=10).pack(side="left")
 
@@ -285,15 +309,18 @@ class LabToolboxApp:
     def _build_livedead_tab(self):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text=tr("🦠 LIVE/DEAD", self.lang))
+        self._notebook_tabs.append((tab, "🦠 LIVE/DEAD"))
         inner = ttk.LabelFrame(tab, text=tr("LIVE/DEAD 存活率统计 + 双因素 ANOVA", self.lang))
         inner.pack(fill="both", expand=True, padx=10, pady=10)
+        self._widgets.append((inner, "LIVE/DEAD 存活率统计 + 双因素 ANOVA"))
 
         self.ld_file = tk.StringVar()
         self._file_row(inner, "数据文件", self.ld_file,
                        [("Excel/CSV", "*.xlsx *.xls *.csv")])
         # 范例表格提示
         row = ttk.Frame(inner); row.pack(fill="x", pady=2)
-        ttk.Label(row, text=tr("范例: ", self.lang), foreground="#a6adc8").pack(side="left")
+        lbl = ttk.Label(row, text=tr("范例: ", self.lang), foreground="#a6adc8")
+        lbl.pack(side="left"); self._widgets.append((lbl, "范例: "))
         ttk.Label(row, text="group, time, repeat, live, dead", foreground="#f9e2af").pack(side="left")
         btn = ttk.Button(row, text=tr("打开范例表格", self.lang), command=self._open_example_ld)
         btn.pack(side="left", padx=8)
@@ -314,8 +341,10 @@ class LabToolboxApp:
     def _build_contact_tab(self):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text=tr("💧 接触角/表面能", self.lang))
+        self._notebook_tabs.append((tab, "💧 接触角/表面能"))
         inner = ttk.LabelFrame(tab, text=tr("OWRK 表面自由能计算", self.lang))
         inner.pack(fill="both", expand=True, padx=10, pady=10)
+        self._widgets.append((inner, "OWRK 表面自由能计算"))
 
         row = ttk.Frame(inner); row.pack(fill="x", pady=4)
         lbl = ttk.Label(row, text=tr("液体1 接触角 (°)", self.lang), width=18)
@@ -349,9 +378,11 @@ class LabToolboxApp:
         """荧光显微镜 LIVE/DEAD 细胞计数 (repeat 文件夹结构)"""
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text=tr("🔬 LIVE/DEAD 细胞计数", self.lang))
+        self._notebook_tabs.append((tab, "🔬 LIVE/DEAD 细胞计数"))
         inner = ttk.LabelFrame(tab, text=tr(
             "荧光图像计数: repeat1/2/3 → 1h/3h → area-channelN", self.lang))
         inner.pack(fill="both", expand=True, padx=10, pady=10)
+        self._widgets.append((inner, "荧光图像计数: repeat1/2/3 → 1h/3h → area-channelN"))
 
         self.ldc_folder = tk.StringVar()
         self._folder_row(inner, "图像根文件夹", self.ldc_folder)
@@ -361,19 +392,25 @@ class LabToolboxApp:
                         text=tr("结构: 根文件夹/repeat1/1h/1-g1.tif (g=活菌) + 1-r1.tif (r=死菌)\n"
                                 "文件名: {区域}-{g|r}{编号}, 区域 c=Control, 1/2/3=测试区", self.lang))
         tip.pack(fill="x", padx=8, pady=4)
+        self._widgets.append((tip, "结构: 根文件夹/repeat1/1h/1-g1.tif (g=活菌) + 1-r1.tif (r=死菌)\n"
+                                   "文件名: {区域}-{g|r}{编号}, 区域 c=Control, 1/2/3=测试区"))
 
         # 参数 (可调)
         row = ttk.Frame(inner); row.pack(fill="x", pady=3)
-        ttk.Label(row, text=tr("最小面积(px)", self.lang), width=14).pack(side="left")
+        lbl = ttk.Label(row, text=tr("最小面积(px)", self.lang), width=14)
+        lbl.pack(side="left"); self._widgets.append((lbl, "最小面积(px)"))
         self.ldc_min = tk.StringVar(value="4")
         ttk.Entry(row, textvariable=self.ldc_min, width=8).pack(side="left")
-        ttk.Label(row, text=tr("圆形度", self.lang), width=10).pack(side="left", padx=(10, 0))
+        lbl = ttk.Label(row, text=tr("圆形度", self.lang), width=10)
+        lbl.pack(side="left", padx=(10, 0)); self._widgets.append((lbl, "圆形度"))
         self.ldc_round = tk.StringVar(value="0.4")
         ttk.Entry(row, textvariable=self.ldc_round, width=8).pack(side="left")
-        ttk.Label(row, text=tr("绿阈值", self.lang), width=10).pack(side="left", padx=(10, 0))
+        lbl = ttk.Label(row, text=tr("绿阈值", self.lang), width=10)
+        lbl.pack(side="left", padx=(10, 0)); self._widgets.append((lbl, "绿阈值"))
         self.ldc_gt = tk.StringVar(value="15")
         ttk.Entry(row, textvariable=self.ldc_gt, width=8).pack(side="left")
-        ttk.Label(row, text=tr("红阈值", self.lang), width=10).pack(side="left", padx=(10, 0))
+        lbl = ttk.Label(row, text=tr("红阈值", self.lang), width=10)
+        lbl.pack(side="left", padx=(10, 0)); self._widgets.append((lbl, "红阈值"))
         self.ldc_rt = tk.StringVar(value="15")
         ttk.Entry(row, textvariable=self.ldc_rt, width=8).pack(side="left")
 

@@ -4,7 +4,7 @@
 # 翻译字典: zh -> en
 TRANSLATIONS = {
     "🧪 实验室工具箱 LabToolbox": "🧪 Lab Toolbox",
-    "实验室工具箱 LabToolbox": "Lab Toolbox LabToolbox",
+    "实验室工具箱 LabToolbox": "Lab Toolbox",
     "📈 生长曲线": "📈 Growth Curve",
     "🔬 LIPSS/DLOA": "🔬 LIPSS/DLOA",
     "🧫 XDLVO": "🧫 XDLVO",
@@ -43,6 +43,25 @@ TRANSLATIONS = {
     "图表: ": "Figure: ",
     "错误": "Error",
     "完成": "Done",
+    # LIVE/DEAD 细胞计数标签页 (第 6 模块)
+    "🔬 LIVE/DEAD 细胞计数": "🔬 LIVE/DEAD Cell Count",
+    "荧光图像计数: repeat1/2/3 → 1h/3h → area-channelN":
+        "Fluorescence counting: repeat1/2/3 → 1h/3h → area-channelN",
+    "图像根文件夹": "Image root folder",
+    "结构: 根文件夹/repeat1/1h/1-g1.tif (g=活菌) + 1-r1.tif (r=死菌)\n"
+    "文件名: {区域}-{g|r}{编号}, 区域 c=Control, 1/2/3=测试区":
+        "Structure: root/repeat1/1h/1-g1.tif (g=live) + 1-r1.tif (r=dead)\n"
+        "Filename: {area}-{g|r}{number}, c=Control, 1/2/3=test area",
+    "最小面积(px)": "Min area (px)",
+    "圆形度": "Roundness",
+    "绿阈值": "Green thresh",
+    "红阈值": "Red thresh",
+    "🚀 运行细胞计数分析": "🚀 Run cell counting",
+    # 范例表格相关
+    "范例: ": "Example: ",
+    "打开范例表格": "Open example table",
+    "提示": "Notice",
+    "范例文件不存在: ": "Example file not found: ",
 }
 
 

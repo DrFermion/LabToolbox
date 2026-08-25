@@ -12,18 +12,19 @@
 | `lipss_dloa` | LIPSS period / orientation-angle analysis from SEM images (DLOA) | numpy, scipy, opencv, matplotlib |
 | `xdlvo` | XDLVO theory bacterial adhesion prediction (contact angle → SFE → ΔG) | numpy, scipy |
 | `livedead` | LIVE/DEAD fluorescence statistics (viability %, two-way ANOVA) | pandas, statsmodels, openpyxl |
+| `livedead_cellcounter` | LIVE/DEAD fluorescence image cell counting (repeat/time/area, summary + ANOVA) | numpy, opencv, Pillow |
 | `contact_angle` | Contact angle / surface free energy (OWRK) | numpy, scipy |
 
 ## 🖥️ GUI (tkinter, zero extra dependencies)
 
 ```
 🧪 Lab Toolbox
-┌────────────────────────────────────────┐
-│ [📈 Growth Curve] [🔬 LIPSS/DLOA] [🧫 XDLVO] [🦠 LIVE/DEAD] [💧 Contact Angle] │
-│                                        │
-│  Each tab = one module's config panel  │
-│  (pick file / fill params → click Run) │
-└────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│ [📈 Growth Curve] [🔬 LIPSS/DLOA] [🧫 XDLVO] [🦠 LIVE/DEAD] [💧 Contact Angle] [🔬 Cell Count] │
+│                                                      │
+│  Each tab = one module's config panel                │
+│  (pick file / fill params → click Run)               │
+└──────────────────────────────────────────────────────┘
 ```
 
 - **Bilingual UI**: toggle 中文 / English with the button in the top-right corner
@@ -69,6 +70,7 @@ labtoolbox/
 ├── lipss_dloa/      # LIPSS/DLOA
 ├── xdlvo/           # XDLVO
 ├── livedead/        # LIVE/DEAD
+├── livedead_cellcounter/  # LIVE/DEAD fluorescence image counting
 ├── contact_angle/   # Contact angle / SFE
 ├── i18n.py          # zh/en translations
 ├── gui.py           # tkinter GUI
@@ -81,6 +83,7 @@ labtoolbox/
 
 - Raw data stays in OneDrive shared folders (not committed to the repo)
 - `data/examples/` contains sanitized example data
+- `examples/` holds the example tables opened by the GUI's "Open example table" buttons (growth curve / LIVE/DEAD)
 - All modules accept Excel/CSV input; figures output to `output/`
 
 ## 🛠️ Building from Source

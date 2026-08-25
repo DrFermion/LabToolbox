@@ -12,6 +12,7 @@ Ruinong Pan 的生物医学实验室分析工具集 — 将 OneDrive 共享文�
 | `lipss_dloa` | SEM 图像 LIPSS 周期/取向角分析 (DLOA) | numpy, scipy, opencv, matplotlib |
 | `xdlvo` | XDLVO 理论细菌粘附预测 (接触角 → 表面能 → ΔG) | numpy, scipy |
 | `livedead` | LIVE/DEAD 荧光统计 (存活率, 双因素 ANOVA) | pandas, statsmodels, openpyxl |
+| `livedead_cellcounter` | LIVE/DEAD 荧光图像细胞计数 (repeat/时间/区域, 汇总+ANOVA) | numpy, opencv, Pillow |
 | `contact_angle` | 接触角/表面自由能计算 (OWRK 等) | numpy, scipy |
 
 ## 🚀 快速开始
@@ -37,12 +38,12 @@ labtoolbox contact-angle --file data/contact_angles.csv
 
 ```
 🧪 实验室工具箱 LabToolbox
-┌──────────────────────────────────┐
-│ [📈 生长曲线] [🔬 LIPSS/DLOA] [🧫 XDLVO] [🦠 LIVE/DEAD] [💧 接触角] │
-│                                                                    │
-│  每个标签页 = 一个模块的配置面板                                   │
-│  (选文件/填参数 → 点"运行" → 结果自动输出)                        │
-└──────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│ [📈 生长曲线] [🔬 LIPSS/DLOA] [🧫 XDLVO] [🦠 LIVE/DEAD] [💧 接触角] [🔬 细胞计数] │
+│                                                                      │
+│  每个标签页 = 一个模块的配置面板                                     │
+│  (选文件/填参数 → 点"运行" → 结果自动输出)                          │
+└──────────────────────────────────────────────┘
 ```
 
 - 启动: `python -m labtoolbox.gui`
@@ -58,6 +59,7 @@ labtoolbox/
 ├── lipss_dloa/      # LIPSS/DLOA
 ├── xdlvo/           # XDLVO
 ├── livedead/        # LIVE/DEAD
+├── livedead_cellcounter/  # LIVE/DEAD 荧光图像细胞计数
 ├── contact_angle/   # 接触角/表面能
 ├── cli.py           # 统一命令行入口
 └── __init__.py
@@ -69,6 +71,7 @@ labtoolbox/
 
 - 原始数据保留在 OneDrive 共享文件夹 (不提交到仓库)
 - `data/examples/` 提供示例数据 (脱敏)
+- `examples/` 提供 GUI "打开范例表格" 按钮用到的范例文件 (生长曲线 / LIVE/DEAD)
 - 所有模块支持 Excel/CSV 输入, 图表输出到 `output/`
 
 ## 📄 License

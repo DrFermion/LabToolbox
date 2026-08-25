@@ -33,7 +33,16 @@ packages = ["labtoolbox",
             "labtoolbox.lipss_dloa",
             "labtoolbox.xdlvo",
             "labtoolbox.livedead",
+            "labtoolbox.livedead_cellcounter",
             "labtoolbox.contact_angle"]
 
 [tool.setuptools.package-data]
 "*" = ["*.json", "*.yaml", "*.yml", "*.csv"]
+
+[tool.setuptools.data-files]
+"examples" = ["examples/example_growth_curve.xlsx",
+              "examples/example_livedead.xlsx",
+              "examples/README.md",
+              "examples/README_livedead_counter.md"]
+"data/examples" = ["data/examples/growth_Ecoli_example.csv",
+                   "data/examples/livedead_example.xlsx"]
