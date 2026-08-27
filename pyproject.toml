@@ -17,11 +17,14 @@ dependencies = [
     "pandas>=2.0",
     "openpyxl>=3.1",
     "statsmodels>=0.14",
+    "tifffile>=2023.0",
 ]
 
 [project.optional-dependencies]
 image = ["opencv-python>=4.8", "Pillow>=10.0"]
 r = ["rpy2>=3.5"]
+# .ibw (Bruker AFM) 直读: igor 官方包在 GitHub (PyPI 上的 igor 是空壳, 勿装)
+surf = ["igor @ git+https://github.com/wking/igor"]
 
 [project.scripts]
 labtoolbox = "labtoolbox.cli:main"
@@ -34,7 +37,8 @@ packages = ["labtoolbox",
             "labtoolbox.xdlvo",
             "labtoolbox.livedead",
             "labtoolbox.livedead_cellcounter",
-            "labtoolbox.contact_angle"]
+            "labtoolbox.contact_angle",
+            "labtoolbox.surfmetrics"]
 
 [tool.setuptools.package-data]
 "*" = ["*.json", "*.yaml", "*.yml", "*.csv"]

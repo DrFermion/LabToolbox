@@ -17,6 +17,7 @@ from labtoolbox.xdlvo import run as xdlvo_run
 from labtoolbox.livedead import run as ld_run
 from labtoolbox.contact_angle import run as ca_run
 from labtoolbox.livedead_cellcounter import run as ldc_run
+from labtoolbox.surfmetrics import run as sm_run
 from labtoolbox.i18n import tr
 
 
@@ -205,6 +206,7 @@ class LabToolboxApp:
         self._build_livedead_tab()
         self._build_contact_tab()
         self._build_livedead_counter_tab()
+        self._build_surfmetrics_tab()
 
     def _build_growth_tab(self):
         tab = ttk.Frame(self.notebook)
@@ -424,6 +426,53 @@ class LabToolboxApp:
                              min_roundness=float(self.ldc_round.get()),
                              green_thresh=int(self.ldc_gt.get()),
                              red_thresh=int(self.ldc_rt.get())))
+
+    def _build_surfmetrics_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text=tr("🏔️ 表面形貌", self.lang))
+        self._notebook_tabs.append((tab, "🏔️ 表面形貌"))
+        inner = ttk.LabelFrame(
+            tab,
+            text=tr("AFM/SEM 高度图 → 3D 图 + 粗糙度 (Sa/Sq/Sz) + 表面积 (Sdr)", self.lang))
+        inner.pack(fill="both", expand=True, padx=10, pady=10)
+        self._widgets.append(
+            (inner, "AFM/SEM 高度图 → 3D 图 + 粗糙度 (Sa/Sq/Sz) + 表面积 (Sdr)"))
+
+        self.sm_file = tk.StringVar()
+        self._file_row(inner, "高度图文件", self.sm_file,
+                       [("AFM/高度图", "*.ibw *.tif *.tiff *.txt *.xyz *.csv")])
+        self.sm_folder = tk.StringVar()
+        self._folder_row(inner, "批量文件夹 (.ibw)", self.sm_folder)
+
+        row = ttk.Frame(inner)
+        row.pack(fill="x", pady=4)
+        lbl = ttk.Label(row, text=tr("通道 (空=自动)", self.lang), width=18)
+        lbl.pack(side="left")
+        self._widgets.append((lbl, "通道 (空=自动)"))
+        self.sm_ch = tk.StringVar(value="")
+        ttk.Entry(row, textvariable=self.sm_ch, width=12).pack(side="left", padx=4)
+
+        row = ttk.Frame(inner)
+        row.pack(fill="x", pady=4)
+        lbl = ttk.Label(row, text=tr("像素尺寸 X (nm, 空=自动)", self.lang), width=18)
+        lbl.pack(side="left")
+        self._widgets.append((lbl, "像素尺寸 X (nm, 空=自动)"))
+        self.sm_px = tk.StringVar(value="")
+        ttk.Entry(row, textvariable=self.sm_px, width=12).pack(side="left", padx=4)
+        ttk.Label(row, text="(.ibw 自动读取)", foreground="#a6adc8").pack(side="left")
+
+        self.sm_out = tk.StringVar(value="output")
+        self._output_row(inner, self.sm_out)
+        self._run_button(
+            inner, "🚀 运行表面分析",
+            lambda: self._run_async(
+                sm_run,
+                file=self.sm_file.get().strip() or None,
+                folder=self.sm_folder.get().strip() or None,
+                channel=int(self.sm_ch.get()) if self.sm_ch.get().strip() else None,
+                px=float(self.sm_px.get()) if self.sm_px.get().strip() else None,
+                py=None,
+                output_dir=self.sm_out.get()))
 
     def run(self):
         self.root.mainloop()

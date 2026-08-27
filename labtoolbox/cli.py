@@ -68,6 +68,20 @@ def cmd_contact_angle(args):
     return 0
 
 
+def cmd_surfmetrics(args):
+    from .surfmetrics import run as sm_run
+    result = sm_run(file=args.file, folder=args.folder, channel=args.channel,
+                    px=args.px, py=args.py, output_dir=args.output)
+    print(f"✅ 表面形貌分析完成: {len(result['results'])} 个文件")
+    for r in result["results"]:
+        print(f"   {r['file']}: Sa={r['Sa_nm']:.2f} nm, Sq={r['Sq_nm']:.2f} nm, "
+              f"Sz={r['Sz_nm']:.1f} nm, Sdr={r['Sdr_pct']:.3f}%")
+    print(f"   汇总 CSV: {result['csv']}")
+    if result["grid"]:
+        print(f"   汇总 3D 网格图: {result['grid']}")
+    return 0
+
+
 # 子命令注册表: 新增模块在这里加一行即可
 COMMANDS = {
     "growth-curve": (cmd_growth_curve, "生长曲线分析 (OD600/CFU 拟合)"),
@@ -75,6 +89,7 @@ COMMANDS = {
     "xdlvo": (cmd_xdlvo, "XDLVO 细菌粘附预测"),
     "livedead": (cmd_livedead, "LIVE/DEAD 存活率统计"),
     "contact-angle": (cmd_contact_angle, "接触角/表面能计算"),
+    "surfmetrics": (cmd_surfmetrics, "AFM 表面形貌: 3D 图 + 粗糙度 (Sa/Sq/Sz) + 表面积 (Sdr)"),
 }
 
 
@@ -113,6 +128,14 @@ def build_parser():
     p.add_argument("--theta2", type=float, required=True, help="液体2 接触角 (度)")
     p.add_argument("--liquid1", default="water", help="液体1 (默认 water)")
     p.add_argument("--liquid2", default="diiodomethane", help="液体2 (默认 diiodomethane)")
+
+    p = sub.add_parser("surfmetrics", help=COMMANDS["surfmetrics"][1])
+    p.add_argument("--file", default=None, help="高度图文件 (.ibw/.tif/.txt/.xyz/.csv)")
+    p.add_argument("--folder", default=None, help="批量: 文件夹内所有 .ibw (如 AFM 原始数据目录)")
+    p.add_argument("--channel", type=int, default=None, help=".ibw 通道索引 (默认自动选 Height)")
+    p.add_argument("--px", type=float, default=None, help="像素尺寸 X (nm; .ibw 自动读取, 其他格式建议给)")
+    p.add_argument("--py", type=float, default=None, help="像素尺寸 Y (nm, 默认=px)")
+    p.add_argument("--output", default="output", help="输出目录")
 
     return parser
 

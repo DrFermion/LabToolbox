@@ -62,6 +62,15 @@ TRANSLATIONS = {
     "打开范例表格": "Open example table",
     "提示": "Notice",
     "范例文件不存在: ": "Example file not found: ",
+    # 表面形貌标签页 (第 7 模块)
+    "🏔️ 表面形貌": "🏔️ Surface Morphology",
+    "AFM/SEM 高度图 → 3D 图 + 粗糙度 (Sa/Sq/Sz) + 表面积 (Sdr)":
+        "AFM/SEM height map → 3D + roughness (Sa/Sq/Sz) + surface area (Sdr)",
+    "高度图文件": "Height map file",
+    "批量文件夹 (.ibw)": "Batch folder (.ibw)",
+    "通道 (空=自动)": "Channel (blank=auto)",
+    "像素尺寸 X (nm, 空=自动)": "Pixel size X (nm, blank=auto)",
+    "🚀 运行表面分析": "🚀 Run surface analysis",
 }
 
 

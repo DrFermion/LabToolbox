@@ -37,10 +37,16 @@ a = Analysis(
         "labtoolbox.livedead",
         "labtoolbox.livedead_cellcounter",
         "labtoolbox.contact_angle",
+        "labtoolbox.surfmetrics",
         "labtoolbox.common.io_utils",
         "labtoolbox.common.fitting",
         "labtoolbox.common.stats",
         "labtoolbox.i18n",
+        "igor",            # .ibw 直读 (wking/igor, GitHub 安装)
+        "igor.binarywave",
+        "igor.struct",
+        "igor.util",
+        "tifffile",        # 高度图 .tif 读取
         "scipy.optimize",
         "scipy.ndimage",
         "scipy.stats",
