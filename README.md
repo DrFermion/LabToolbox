@@ -14,6 +14,9 @@ Ruinong Pan 的生物医学实验室分析工具集 — 将 OneDrive 共享文�
 | `livedead` | LIVE/DEAD 荧光统计 (存活率, 双因素 ANOVA) | pandas, statsmodels, openpyxl |
 | `livedead_cellcounter` | LIVE/DEAD 荧光图像细胞计数 (repeat/时间/区域, 汇总+ANOVA) | numpy, opencv, Pillow |
 | `contact_angle` | 接触角/表面自由能计算 (OWRK 等) | numpy, scipy |
+| `surfmetrics` | AFM/SEM 高度图 → 3D 图 + 粗糙度 (Sa/Sq/Sz) + 表面积 (Sdr) | numpy, scipy, tifffile, igor* |
+
+> *`igor` 用于 Bruker .ibw 直读, 需从 GitHub 安装: `pip install "igor @ git+https://github.com/wking/igor"` (PyPI 上的 `igor` 是空壳, 勿装)。
 
 ## 🚀 快速开始
 
@@ -32,6 +35,8 @@ labtoolbox lipss-dloa --folder data/sem_images/
 labtoolbox xdlvo --config data/xdlvo_inputs.csv
 labtoolbox livedead --file data/livedead.xlsx --group 5%F-DLC
 labtoolbox contact-angle --file data/contact_angles.csv
+labtoolbox surfmetrics --folder "AFM 数据目录" --output 结果目录   # 批量: .ibw 直读, 自动校准
+labtoolbox surfmetrics --file sample.ibw                          # 单文件
 ```
 
 ## 🖥️ GUI 界面 (tkinter, 零额外依赖)
@@ -39,7 +44,7 @@ labtoolbox contact-angle --file data/contact_angles.csv
 ```
 🧪 实验室工具箱 LabToolbox
 ┌──────────────────────────────────────────────┐
-│ [📈 生长曲线] [🔬 LIPSS/DLOA] [🧫 XDLVO] [🦠 LIVE/DEAD] [💧 接触角] [🔬 细胞计数] │
+│ [📈 生长曲线] [🔬 LIPSS/DLOA] [🧫 XDLVO] [🦠 LIVE/DEAD] [💧 接触角] [🔬 细胞计数] [🏔️ 表面形貌] │
 │                                                                      │
 │  每个标签页 = 一个模块的配置面板                                     │
 │  (选文件/填参数 → 点"运行" → 结果自动输出)                          │

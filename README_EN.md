@@ -14,13 +14,16 @@
 | `livedead` | LIVE/DEAD fluorescence statistics (viability %, two-way ANOVA) | pandas, statsmodels, openpyxl |
 | `livedead_cellcounter` | LIVE/DEAD fluorescence image cell counting (repeat/time/area, summary + ANOVA) | numpy, opencv, Pillow |
 | `contact_angle` | Contact angle / surface free energy (OWRK) | numpy, scipy |
+| `surfmetrics` | AFM/SEM height map → 3D + roughness (Sa/Sq/Sz) + surface area (Sdr) | numpy, scipy, tifffile, igor* |
+
+> *`igor` (Bruker .ibw direct read) must be installed from GitHub: `pip install "igor @ git+https://github.com/wking/igor"` (the PyPI `igor` package is an empty shell — do not install).
 
 ## 🖥️ GUI (tkinter, zero extra dependencies)
 
 ```
 🧪 Lab Toolbox
 ┌──────────────────────────────────────────────────────┐
-│ [📈 Growth Curve] [🔬 LIPSS/DLOA] [🧫 XDLVO] [🦠 LIVE/DEAD] [💧 Contact Angle] [🔬 Cell Count] │
+│ [📈 Growth Curve] [🔬 LIPSS/DLOA] [🧫 XDLVO] [🦠 LIVE/DEAD] [💧 Contact Angle] [🔬 Cell Count] [🏔️ Surface Morphology] │
 │                                                      │
 │  Each tab = one module's config panel                │
 │  (pick file / fill params → click Run)               │
@@ -48,6 +51,8 @@ labtoolbox lipss-dloa --folder data/sem_images/
 labtoolbox xdlvo --angles '{"theta_diiodo":48.2,"theta_water":72.3,"theta_form":61.5}'
 labtoolbox livedead --file data/livedead.xlsx
 labtoolbox contact-angle --theta1 72.3 --theta2 48.2
+labtoolbox surfmetrics --folder "AFM data dir" --output out   # batch: direct .ibw read
+labtoolbox surfmetrics --file sample.ibw                     # single file
 ```
 
 ## 📦 Releases (one-click install)
