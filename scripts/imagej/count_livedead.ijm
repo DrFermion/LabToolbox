@@ -83,8 +83,9 @@ for (i = 0; i < list.length; i++) {
   rc = roiManager("count");
   File.append(f + "," + chanUsed + "," + bg + "," + th + "," + cnt + "," + rc, out);
   // ---- QC: circle + number every counted particle on the source channel ----
-  // Circles via magenta overlay, magenta numbers via drawString. Flatten would
-  // auto-draw black-bg white index labels (a second, inconsistent number), so we
+  // Circles via blue overlay, blue numbers via drawString (blue reads best on
+  // both green live and red dead backgrounds). Flatten would auto-draw
+  // black-bg white index labels (a second, inconsistent number), so we
   // disable overlay labels first: Overlay.drawLabels(false).
   if (lengthOf(qcDir) > 0 && cnt > 0 && roiManager("count") > 0) {
     selectWindow(named);
@@ -98,9 +99,9 @@ for (i = 0; i < list.length; i++) {
       else run("Red");
     }
     run("RGB Color");
-    roiManager("Set Color", "magenta");
+    roiManager("Set Color", "blue");
     Overlay.drawLabels(false);                 // no auto index labels on Flatten
-    setColor(255, 0, 255);                     // magenta numbers
+    setColor(0, 0, 255);                       // blue numbers
     setFont("SansSerif", 11);
     for (r = 0; r < roiManager("count"); r++) {
       roiManager("select", r);
