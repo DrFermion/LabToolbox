@@ -83,13 +83,17 @@ for (i = 0; i < list.length; i++) {
   rc = roiManager("count");
   File.append(f + "," + chanUsed + "," + bg + "," + th + "," + cnt + "," + rc, out);
   // ---- QC: circle + number every counted particle on the source channel ----
+  // Circles via magenta overlay, magenta numbers via drawString. Flatten would
+  // auto-draw black-bg white index labels (a second, inconsistent number), so we
+  // disable overlay labels first: Overlay.drawLabels(false).
   if (lengthOf(qcDir) > 0 && cnt > 0 && roiManager("count") > 0) {
     selectWindow(named);
     run("Duplicate...", "title=qc_view");
     run("Green");                              // LUT: display as green fluorescence
     run("RGB Color");
     roiManager("Set Color", "magenta");
-    setColor(255, 0, 255);                    // magenta numbers (drawn on pixels)
+    Overlay.drawLabels(false);                 // no auto index labels on Flatten
+    setColor(255, 0, 255);                     // magenta numbers
     setFont("SansSerif", 11);
     for (r = 0; r < roiManager("count"); r++) {
       roiManager("select", r);
@@ -97,11 +101,10 @@ for (i = 0; i < list.length; i++) {
       getSelectionBounds(qx, qy, qw, qh);
       drawString(r + 1, qx + qw / 2, qy + qh / 2 + 5);
     }
-    run("Flatten");                            // flatten overlay (circles) into image
-    qtitle = getTitle();                       // flatten window is active
+    run("Flatten");                            // flatten overlay circles into image
     stem = substring(f, 0, lastIndexOf(f, "."));
     saveAs("PNG", qcDir + stem + "_qc.png");
-    close();                                   // close flatten result (qc_view closed by loop)
+    close();                                   // close flatten result
   }
   run("Clear Results");
   roiManager("reset");
