@@ -60,11 +60,14 @@ class ImageJEngine:
     """
 
     def __init__(self, imagej_dir=r"F:/ImageJ/ImageJ", min_size=3, max_size=500,
-                 bg_offset=40):
+                 bg_offset=40, qc_dir=None):
+        """qc_dir: 可选 QC 输出根目录 — 每张图存 <stem>_qc.png (每个被计数粒子画
+        品红圈+编号), 用于故障排查 (数 0/漏数/多圈时看圈位置). None = 不输出."""
         self.imagej_dir = imagej_dir
         self.min_size = int(min_size)
         self.max_size = int(max_size)
         self.bg_offset = int(bg_offset)
+        self.qc_dir = qc_dir
         self._cache = {}  # dirname -> {filename: count}
 
     # -- 内部: 目录级 ImageJ 批处理 --
@@ -107,9 +110,14 @@ class ImageJEngine:
                 f"ImageJ 未安装完整: {self.imagej_dir} (需要 ij.jar + jre/bin/java.exe)")
         fd, args_path = tempfile.mkstemp(suffix=".txt", prefix="ij_args_")
         out_csv = args_path + ".csv"
+        qc_sub = ""
+        if self.qc_dir:
+            qc_sub = os.path.join(self.qc_dir, os.path.basename(directory.rstrip("/\\")))
+            os.makedirs(qc_sub, exist_ok=True)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(directory.replace("\\", "/") + "\n")
             f.write(out_csv.replace("\\", "/") + "\n")
+            f.write((qc_sub.replace("\\", "/") if qc_sub else "") + "\n")
         env = dict(os.environ, JAVA_TOOL_OPTIONS="-Dfile.encoding=UTF-8")
         cmd = [java, "-cp", ij_jar, "ij.ImageJ", "-batch", macro, args_path]
         try:
@@ -549,7 +557,7 @@ def run(folder, output_dir="output", area_um2=None, backend="opencv",
     """
     if backend == "imagej":
         ij_kw = {k: engine_kwargs[k] for k in
-                 ("imagej_dir", "min_size", "max_size", "bg_offset")
+                 ("imagej_dir", "min_size", "max_size", "bg_offset", "qc_dir")
                  if k in engine_kwargs}
         engine = ImageJEngine(**ij_kw)
     else:

@@ -1,8 +1,11 @@
 // count_livedead.ijm - LIVE/DEAD adaptive-threshold counting (ImageJ)
 // Usage (headless): fiji-windows-x64.exe --headless -macro count_livedead.ijm "<argfile.txt>"
-// argfile (UTF-8, two lines): line1=inputDir  line2=outputCSV  (Chinese paths OK here, NOT on CLI)
+// argfile (UTF-8, 3 lines): line1=inputDir  line2=outputCSV  line3=qcDir (may be empty)
+//   Chinese paths OK in argfile, NOT on CLI
 // Method == LabToolbox Python pipeline: bg-mode+40 threshold -> size filter 3-500 px
 // Channel-trap rule: named channel (g->green, r->red) with max<30 falls back to brightest channel
+// QC mode: when qcDir non-empty, each counted image is saved as <stem>_qc.png with every
+//   counted particle circled (magenta) and numbered (white), for troubleshooting.
 // NOTE: keep this macro file pure ASCII (macro files are not read as UTF-8)
 
 s = File.openAsString(getArgument());
@@ -11,7 +14,13 @@ if (lines.length < 2) { print("ARGS FILE ERROR"); exit(); }
 dir = replace(lines[0], "\r", "");
 out = replace(lines[1], "\r", "");
 if (endsWith(out, "\r")) out = substring(out, 0, lengthOf(out) - 1);
+qcDir = "";
+if (lines.length >= 3) {
+  qcDir = replace(lines[2], "\r", "");
+  if (endsWith(qcDir, "\r")) qcDir = substring(qcDir, 0, lengthOf(qcDir) - 1);
+}
 if (!endsWith(dir, "/") && !endsWith(dir, "\\")) dir = dir + "/";
+if (lengthOf(qcDir) > 0 && !endsWith(qcDir, "/") && !endsWith(qcDir, "\\")) qcDir = qcDir + "/";
 
 // highest non-zero histogram bin = channel max
 function chanMax() {
@@ -28,9 +37,10 @@ function bgMode() {
   return bi;
 }
 
-File.append("filename,chan_used,bg,thresh,count", out);
+File.append("filename,chan_used,bg,thresh,count,roi_count", out);
 list = getFileList(dir);
 run("Clear Results");
+roiManager("reset");
 for (i = 0; i < list.length; i++) {
   f = list[i];
   if (!endsWith(toLowerCase(f), ".tif")) continue;
@@ -68,10 +78,33 @@ for (i = 0; i < list.length; i++) {
   th = bg + 40;
   setThreshold(th, 255);
   run("Convert to Mask");
-  run("Analyze Particles...", "size=3-500 show=Nothing");
+  run("Analyze Particles...", "size=3-500 show=Nothing add");
   cnt = nResults;
-  File.append(f + "," + chanUsed + "," + bg + "," + th + "," + cnt, out);
+  rc = roiManager("count");
+  File.append(f + "," + chanUsed + "," + bg + "," + th + "," + cnt + "," + rc, out);
+  // ---- QC: circle + number every counted particle on the source channel ----
+  if (lengthOf(qcDir) > 0 && cnt > 0 && roiManager("count") > 0) {
+    selectWindow(named);
+    run("Duplicate...", "title=qc_view");
+    run("Green");                              // LUT: display as green fluorescence
+    run("RGB Color");
+    roiManager("Set Color", "magenta");
+    setColor(255, 0, 255);                    // magenta numbers (drawn on pixels)
+    setFont("SansSerif", 11);
+    for (r = 0; r < roiManager("count"); r++) {
+      roiManager("select", r);
+      Overlay.addSelection();
+      getSelectionBounds(qx, qy, qw, qh);
+      drawString(r + 1, qx + qw / 2, qy + qh / 2 + 5);
+    }
+    run("Flatten");                            // flatten overlay (circles) into image
+    qtitle = getTitle();                       // flatten window is active
+    stem = substring(f, 0, lastIndexOf(f, "."));
+    saveAs("PNG", qcDir + stem + "_qc.png");
+    close();                                   // close flatten result (qc_view closed by loop)
+  }
   run("Clear Results");
+  roiManager("reset");
   for (k = 0; k < 20; k++) { if (nImages == 0) break; close(); }   // close all windows of this file (bounded)
 }
 print("BATCH DONE: " + list.length + " files -> " + out);
