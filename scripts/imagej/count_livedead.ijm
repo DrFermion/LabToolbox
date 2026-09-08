@@ -89,7 +89,14 @@ for (i = 0; i < list.length; i++) {
   if (lengthOf(qcDir) > 0 && cnt > 0 && roiManager("count") > 0) {
     selectWindow(named);
     run("Duplicate...", "title=qc_view");
-    run("Green");                              // LUT: display as green fluorescence
+    // LUT by counted channel: green fluorescence stays green, red stays red...
+    if (indexOf(named, "(red)") >= 0) run("Red");
+    else if (indexOf(named, "(blue)") >= 0) run("Blue");
+    else if (indexOf(named, "(green)") >= 0) run("Green");
+    else {                                     // gray image: decide by file name g/r
+      if (indexOf(toLowerCase(f), "-g") >= 0) run("Green");
+      else run("Red");
+    }
     run("RGB Color");
     roiManager("Set Color", "magenta");
     Overlay.drawLabels(false);                 // no auto index labels on Flatten
