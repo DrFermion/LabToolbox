@@ -205,12 +205,62 @@ def plot_grid(files_data, out, title=None, z_mode="auto"):
     return out
 
 
+def _win2wsl(path):
+    """Windows 路径 F:\\x\\y → WSL /mnt/f/x/y"""
+    p = path.replace("\\", "/")
+    drive = p[0].lower()
+    return "/mnt/" + drive + p[2:]
+
+
+def gwy_batch_wsl(paths, level=True, channel=None, timeout=600):
+    """调 WSL Gwyddion 内核批处理 (pygwy)。返回 [{file, channel, mean_nm,
+    Sa_nm, Sq_nm, Sz_nm, skew, kurt}]. 依赖: WSL Ubuntu + /usr/local/bin/gwy_batch.py
+    (见 labtoolbox 技能 references/gwyddion-pygwy-wsl-batch.md)
+    """
+    import subprocess, tempfile, csv as _csv
+    # gwy_batch.py 收单文件/目录 → 逐文件循环 (每次 ~2-4s JVM/模块启动)
+    rows = []
+    for p in paths:
+        wp = _win2wsl(os.path.abspath(p))
+        fd, tmp = tempfile.mkstemp(suffix=".csv", prefix="gwy_")
+        os.close(fd)
+        tmp_win = tmp.replace("\\", "/")
+        tmp_wsl = _win2wsl(tmp_win)   # C:/... → /mnt/c/...
+        cmd = ["wsl", "-d", "Ubuntu", "-u", "root", "--", "bash", "-lc",
+               "/usr/local/bin/gwy_batch.py '%s' %s %s -o '%s' 2>/dev/null"
+               % (wp, "--level" if level else "--raw",
+                  ("--channel %d" % channel) if channel is not None else "",
+                  "/root/" + os.path.basename(tmp))]
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=timeout, env=dict(os.environ))
+        # 拷回 Windows 临时路径 (WSL 侧须用 /mnt/... 路径)
+        subprocess.run(["wsl", "-d", "Ubuntu", "-u", "root", "--", "bash", "-lc",
+                        "cp '/root/%s' '%s'" % (os.path.basename(tmp), tmp_wsl)],
+                       capture_output=True, timeout=60)
+        if os.path.exists(tmp):
+            with open(tmp, encoding="utf-8") as f:
+                for r in _csv.DictReader(f):
+                    rows.append({
+                        "file": r["file"], "channel": r["channel"],
+                        "mean_nm": float(r["mean_nm"]), "Sa_nm": float(r["Sa_nm"]),
+                        "Sq_nm": float(r["Sq_nm"]), "Sz_nm": float(r["Sz_nm"]),
+                        "skew": float(r["skew"]), "kurt": float(r["kurt"]),
+                    })
+            os.unlink(tmp)
+        if not rows or rows[-1].get("file") != os.path.basename(p):
+            raise RuntimeError("gwy_batch 无输出: %s (err: %s)"
+                               % (p, (proc.stderr + proc.stdout)[-300:]))
+    return rows
+
+
 def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="output",
-        z_mode="auto"):
+        z_mode="auto", backend="python", level=True):
     """统一入口 (CLI/GUI 调用).
 
     file: 单个高度图文件; folder: 批量处理文件夹内所有 .ibw
     z_mode: 3D 图 z 轴显示模式 — "auto" (默认, XY 等比例+形貌清晰) / "real" (全等比) / 数值放大系数
+    backend: "python" (默认, 自研算法) / "gwyddion" (WSL Gwyddion 2.67 内核,
+             真·Gwyddion 平面扣除+统计; level=True 时先平面扣除)
     返回 dict: {"results": [...], "csv": path, "figures": [...], "grid": path|None}
     """
     from labtoolbox.common.io_utils import ensure_output_dir
@@ -230,6 +280,62 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
         raise FileNotFoundError("未找到输入文件")
 
     results, figures, grid_data = [], [], []
+    if backend == "gwyddion":
+        # ---- Gwyddion 内核后端: 数值来自真·Gwyddion (level + 统计) ----
+        gwy_rows = gwy_batch_wsl(paths, level=level, channel=channel)
+        gwy_by_file = {r["file"]: r for r in gwy_rows}
+        for p in paths:
+            name = os.path.splitext(os.path.basename(p))[0]
+            g = gwy_by_file.get(os.path.basename(p), {})
+            z, px_h, py_h = load_heightmap(p, channel=channel)
+            if px is None and px_h is not None:
+                px, py = px_h, py_h or px_h
+            m_py = surface_metrics(z, px, py or px) if px else None
+            results.append({
+                "file": name, "path": p, "backend": "gwyddion",
+                "level": bool(level),
+                "Sa_nm": g.get("Sa_nm"), "Sq_nm": g.get("Sq_nm"),
+                "Sz_nm": g.get("Sz_nm"), "skew": g.get("skew"),
+                "kurt": g.get("kurt"),
+                "S3d_um2": m_py["S3d_um2"] if m_py else None,
+                "Sproj_um2": m_py["Sproj_um2"] if m_py else None,
+                "Sdr_pct": m_py["Sdr_pct"] if m_py else None,
+            })
+            if px:
+                fig_p = os.path.join(out, f"{name}_3D.png")
+                src_tag = "(Gwyddion level)" if level else "(Gwyddion raw)"
+                plot3d(z, px, py or px, fig_p, z_mode=z_mode,
+                       title=f"{name}  3D surface  {src_tag}")
+                figures.append(fig_p)
+                grid_data.append((name, z, px, {
+                    "Sa_nm": g.get("Sa_nm"), "Sq_nm": g.get("Sq_nm"),
+                    "Sdr_pct": m_py["Sdr_pct"] if m_py else 0.0}))
+            print(f"  {name}: Sa={g.get('Sa_nm')} nm, Sq={g.get('Sq_nm')} nm, "
+                  f"Sz={g.get('Sz_nm')} nm  [Gwyddion kernel]")
+        csv_path = os.path.join(out, "surface_metrics_summary.csv")
+        with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+            wtr = csv.writer(f)
+            wtr.writerow(["file", "backend", "level", "Sa_nm", "Sq_nm", "Sz_nm",
+                          "skew", "kurt", "S3d_um2", "Sproj_um2", "Sdr_pct"])
+            for r in results:
+                wtr.writerow([r["file"], r["backend"], r["level"],
+                              f"{r['Sa_nm']:.4f}" if r["Sa_nm"] is not None else "",
+                              f"{r['Sq_nm']:.4f}" if r["Sq_nm"] is not None else "",
+                              f"{r['Sz_nm']:.4f}" if r["Sz_nm"] is not None else "",
+                              f"{r['skew']:.4f}" if r.get("skew") is not None else "",
+                              f"{r['kurt']:.4f}" if r.get("kurt") is not None else "",
+                              f"{r['S3d_um2']:.4f}" if r["S3d_um2"] is not None else "",
+                              f"{r['Sproj_um2']:.4f}" if r["Sproj_um2"] is not None else "",
+                              f"{r['Sdr_pct']:.4f}" if r["Sdr_pct"] is not None else ""])
+        grid_path = None
+        if len(grid_data) > 1:
+            grid_path = os.path.join(out, "all_3D_grid.png")
+            plot_grid(grid_data, grid_path, title="AFM surface analysis (3D)",
+                      z_mode=z_mode)
+        return {"results": results, "csv": csv_path, "figures": figures,
+                "grid": grid_path}
+
+    # ---- Python 自研后端 (原逻辑) ----
     for p in paths:
         name = os.path.splitext(os.path.basename(p))[0]
         z, px_h, py_h = load_heightmap(p, channel=channel)

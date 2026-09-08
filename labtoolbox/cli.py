@@ -71,11 +71,15 @@ def cmd_contact_angle(args):
 def cmd_surfmetrics(args):
     from .surfmetrics import run as sm_run
     result = sm_run(file=args.file, folder=args.folder, channel=args.channel,
-                    px=args.px, py=args.py, output_dir=args.output, z_mode=args.z_mode)
+                    px=args.px, py=args.py, output_dir=args.output, z_mode=args.z_mode,
+                    backend=args.backend, level=not args.no_level)
     print(f"✅ 表面形貌分析完成: {len(result['results'])} 个文件")
     for r in result["results"]:
-        print(f"   {r['file']}: Sa={r['Sa_nm']:.2f} nm, Sq={r['Sq_nm']:.2f} nm, "
-              f"Sz={r['Sz_nm']:.1f} nm, Sdr={r['Sdr_pct']:.3f}%")
+        tag = f" [{r.get('backend', 'python')}" + (", level]" if r.get("level") else "]")
+        sa = f"{r['Sa_nm']:.2f}" if r.get("Sa_nm") is not None else "?"
+        sq = f"{r['Sq_nm']:.2f}" if r.get("Sq_nm") is not None else "?"
+        sz = f"{r['Sz_nm']:.1f}" if r.get("Sz_nm") is not None else "?"
+        print(f"   {r['file']}: Sa={sa} nm, Sq={sq} nm, Sz={sz} nm{tag}")
     print(f"   汇总 CSV: {result['csv']}")
     if result["grid"]:
         print(f"   汇总 3D 网格图: {result['grid']}")
@@ -138,6 +142,10 @@ def build_parser():
     p.add_argument("--output", default="output", help="输出目录")
     p.add_argument("--z-mode", default="auto", dest="z_mode",
                    help="3D 图 z 轴模式: auto (默认, XY 等比例+形貌清晰) / real (全等比) / 数值放大系数")
+    p.add_argument("--backend", default="python", choices=["python", "gwyddion"],
+                   help="python (默认, 自研) / gwyddion (WSL Gwyddion 2.67 内核真处理)")
+    p.add_argument("--no-level", action="store_true",
+                   help="gwyddion backend 时跳过平面扣除 (默认 level)")
 
     return parser
 
