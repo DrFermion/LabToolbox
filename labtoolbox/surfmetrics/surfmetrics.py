@@ -115,24 +115,47 @@ def surface_metrics(z, px, py):
             "S3d_um2": S3d / 1e6, "Sproj_um2": Sproj / 1e6, "Sdr_pct": Sdr}
 
 
-def plot3d(z, px, py, out, title=None):
-    """单文件 3D 表面图. z: nm; px/py: nm"""
+def plot3d(z, px, py, out, title=None, z_mode="auto"):
+    """单文件 3D 表面图. z: nm; px/py: nm/px.
+
+    z_mode 高度轴显示模式:
+      "auto"  (默认) — XY 严格按物理比例 (px:py), z 显示为 xy 平均尺度的 ~25%,
+                       形貌起伏清晰可读 (学术图惯例, z 轻微夸大但标注真实 nm 刻度)
+      "real"  — z 与 XY 完全同比例 (1 nm = 0.001 µm), 实际结构全等比,
+                起伏可能非常扁 (真实物理比例)
+      数值    — 手动 z 放大系数 k (k=1.0 即 real)
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
     h, w = z.shape
-    X, Y = np.meshgrid(np.arange(w) * px / 1000.0, np.arange(h) * py / 1000.0)
-    m = surface_metrics(z, px, py)
+    xr = (w - 1) * px / 1000.0          # µm
+    yr = (h - 1) * (py or px) / 1000.0  # µm
+    zr = float(np.ptp(z))               # nm
+    k = 1.0
+    if z_mode == "auto":
+        if zr > 0:
+            k = max(0.25 * (xr + yr) / 2.0 / (zr / 1000.0), 1.0)
+    elif z_mode == "real":
+        k = 1.0
+    else:
+        k = float(z_mode)
+    X, Y = np.meshgrid(np.arange(w) * px / 1000.0, np.arange(h) * (py or px) / 1000.0)
+    m = surface_metrics(z, px, py or px)
     fig = plt.figure(figsize=(9, 6.5))
     ax = fig.add_subplot(111, projection="3d")
     surf = ax.plot_surface(X, Y, z, cmap="viridis", linewidth=0,
                            antialiased=True, rstride=1, cstride=1)
+    # 横纵轴 (X/Y) 严格按物理尺寸比例 + z 按显示模式; z 数据轴保持真实 nm
+    ax.set_box_aspect((xr, yr, zr / 1000.0 * k))
     ax.set_xlabel("X (µm)")
     ax.set_ylabel("Y (µm)")
     ax.set_zlabel("Height (nm)")
     t = title or (f"Sa={m['Sa_nm']:.2f} nm, Sq={m['Sq_nm']:.2f} nm, "
                   f"Sz={m['Sz_nm']:.1f} nm, Sdr={m['Sdr_pct']:.2f}%")
+    if z_mode != "auto":
+        t += f"  [z ×{k:.2g}]"
     ax.set_title(t, fontsize=10)
     fig.colorbar(surf, shrink=0.6, label="Height (nm)")
     fig.tight_layout()
@@ -142,8 +165,8 @@ def plot3d(z, px, py, out, title=None):
     return out
 
 
-def plot_grid(files_data, out, title=None):
-    """多文件 3D 网格图 (≤9 个)"""
+def plot_grid(files_data, out, title=None, z_mode="auto"):
+    """多文件 3D 网格图 (≤9 个); XY 等比例, z_mode 同 plot3d"""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -155,9 +178,20 @@ def plot_grid(files_data, out, title=None):
     for idx, (name, z, px, m) in enumerate(files_data):
         ax = fig.add_subplot(rows, cols, idx + 1, projection="3d")
         h, w = z.shape
-        X, Y = np.meshgrid(np.arange(w) * px / 1000.0, np.arange(h) * px / 1000.0)
+        py = px  # 网格数据统一按 px (方形扫描); 非方形用 px 近似
+        xr = (w - 1) * px / 1000.0
+        yr = (h - 1) * py / 1000.0
+        zr = float(np.ptp(z))
+        k = 1.0
+        if z_mode == "auto":
+            if zr > 0:
+                k = max(0.25 * (xr + yr) / 2.0 / (zr / 1000.0), 1.0)
+        elif z_mode != "real":
+            k = float(z_mode)
+        X, Y = np.meshgrid(np.arange(w) * px / 1000.0, np.arange(h) * py / 1000.0)
         surf = ax.plot_surface(X, Y, z, cmap="viridis", linewidth=0,
                                antialiased=True, rstride=1, cstride=1)
+        ax.set_box_aspect((xr, yr, zr / 1000.0 * k))
         ax.set_title(f"{name}\nSa={m['Sa_nm']:.2f} nm | Sq={m['Sq_nm']:.2f} nm | "
                      f"Sdr={m['Sdr_pct']:.2f}%", fontsize=8)
         ax.set_xlabel("µm"); ax.set_ylabel("µm"); ax.set_zlabel("nm")
@@ -171,10 +205,12 @@ def plot_grid(files_data, out, title=None):
     return out
 
 
-def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="output"):
+def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="output",
+        z_mode="auto"):
     """统一入口 (CLI/GUI 调用).
 
     file: 单个高度图文件; folder: 批量处理文件夹内所有 .ibw
+    z_mode: 3D 图 z 轴显示模式 — "auto" (默认, XY 等比例+形貌清晰) / "real" (全等比) / 数值放大系数
     返回 dict: {"results": [...], "csv": path, "figures": [...], "grid": path|None}
     """
     from labtoolbox.common.io_utils import ensure_output_dir
@@ -204,7 +240,7 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
         m = surface_metrics(z, px, py or px)
         results.append({"file": name, "path": p, **m})
         fig_p = os.path.join(out, f"{name}_3D.png")
-        plot3d(z, px, py or px, fig_p, title=f"{name}  3D surface")
+        plot3d(z, px, py or px, fig_p, title=f"{name}  3D surface", z_mode=z_mode)
         figures.append(fig_p)
         grid_data.append((name, z, px, m))
         print(f"  {name}: Sa={m['Sa_nm']:.2f} nm, Sq={m['Sq_nm']:.2f} nm, "
@@ -222,5 +258,5 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
     grid_path = None
     if len(grid_data) > 1:
         grid_path = os.path.join(out, "all_3D_grid.png")
-        plot_grid(grid_data, grid_path, title="AFM surface analysis (3D)")
+        plot_grid(grid_data, grid_path, title="AFM surface analysis (3D)", z_mode=z_mode)
     return {"results": results, "csv": csv_path, "figures": figures, "grid": grid_path}

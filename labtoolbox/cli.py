@@ -71,7 +71,7 @@ def cmd_contact_angle(args):
 def cmd_surfmetrics(args):
     from .surfmetrics import run as sm_run
     result = sm_run(file=args.file, folder=args.folder, channel=args.channel,
-                    px=args.px, py=args.py, output_dir=args.output)
+                    px=args.px, py=args.py, output_dir=args.output, z_mode=args.z_mode)
     print(f"✅ 表面形貌分析完成: {len(result['results'])} 个文件")
     for r in result["results"]:
         print(f"   {r['file']}: Sa={r['Sa_nm']:.2f} nm, Sq={r['Sq_nm']:.2f} nm, "
@@ -136,6 +136,8 @@ def build_parser():
     p.add_argument("--px", type=float, default=None, help="像素尺寸 X (nm; .ibw 自动读取, 其他格式建议给)")
     p.add_argument("--py", type=float, default=None, help="像素尺寸 Y (nm, 默认=px)")
     p.add_argument("--output", default="output", help="输出目录")
+    p.add_argument("--z-mode", default="auto", dest="z_mode",
+                   help="3D 图 z 轴模式: auto (默认, XY 等比例+形貌清晰) / real (全等比) / 数值放大系数")
 
     return parser
 

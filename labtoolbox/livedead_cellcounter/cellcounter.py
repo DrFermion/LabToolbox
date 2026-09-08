@@ -47,6 +47,104 @@ for fp in [r"C:\Windows\Fonts\msyh.ttc", r"C:\Windows\Fonts\simhei.ttf"]:
 
 
 # ==================== 计数引擎 (整合自 counter2.2.0) ====================
+class ImageJEngine:
+    """ImageJ 计数引擎 (开源工具后端, 替代/对照 OpenCV 引擎)
+
+    方法学: 自适应阈值 = 背景直方图众数+40 -> 通道陷阱修正 (命名 g/r 通道
+    无信号时取最亮通道) -> Analyze Particles size 3-500 px。
+    引擎: 经典 ImageJ 1.54 headless (-batch), 目录级批处理 + 缓存。
+    接口与 CellCounterEngine 对齐: count_live_dead(path) -> {'green','red'}
+
+    注意: 依赖 F:/ImageJ (经典 ImageJ 1.54) 已安装; 宏文件需为纯 ASCII,
+    中文路径走 UTF-8 参数文件, Image-Pro 假校准会自动清除。
+    """
+
+    def __init__(self, imagej_dir=r"F:/ImageJ/ImageJ", min_size=3, max_size=500,
+                 bg_offset=40):
+        self.imagej_dir = imagej_dir
+        self.min_size = int(min_size)
+        self.max_size = int(max_size)
+        self.bg_offset = int(bg_offset)
+        self._cache = {}  # dirname -> {filename: count}
+
+    # -- 内部: 目录级 ImageJ 批处理 --
+    def _macro_path(self):
+        return os.path.join(self.imagej_dir, "macros", "count_livedead.ijm")
+
+    def _batch_dir(self, directory):
+        """跑一次 ImageJ 批处理整个目录, 填充缓存 {fname: count}"""
+        import subprocess, tempfile
+        macro = self._macro_path()
+        if not os.path.exists(macro):
+            raise FileNotFoundError(
+                f"ImageJ 宏不存在: {macro} — 需先部署 count_livedead.ijm "
+                f"(见 F:/ImageJ 或 labtoolbox 技能 livedead-imagej-pipeline)")
+        java = os.path.join(self.imagej_dir, "jre", "bin", "java.exe")
+        ij_jar = os.path.join(self.imagej_dir, "ij.jar")
+        if not os.path.exists(java) or not os.path.exists(ij_jar):
+            raise FileNotFoundError(
+                f"ImageJ 未安装完整: {self.imagej_dir} (需要 ij.jar + jre/bin/java.exe)")
+        fd, args_path = tempfile.mkstemp(suffix=".txt", prefix="ij_args_")
+        out_csv = args_path + ".csv"
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(directory.replace("\\", "/") + "\n")
+            f.write(out_csv.replace("\\", "/") + "\n")
+        env = dict(os.environ, JAVA_TOOL_OPTIONS="-Dfile.encoding=UTF-8")
+        cmd = [java, "-cp", ij_jar, "ij.ImageJ", "-batch", macro, args_path]
+        try:
+            proc = subprocess.run(cmd, env=env, capture_output=True,
+                                  text=True, timeout=1800)
+        finally:
+            try:
+                os.unlink(args_path)
+            except OSError:
+                pass
+        counts = {}
+        if os.path.exists(out_csv):
+            import csv
+            with open(out_csv, encoding="utf-8") as f:
+                for row in csv.DictReader(f):
+                    try:
+                        counts[row["filename"]] = int(float(row["count"]))
+                    except (ValueError, KeyError):
+                        counts[row["filename"]] = 0
+            try:
+                os.unlink(out_csv)
+            except OSError:
+                pass
+        self._cache[directory] = counts
+        return counts
+
+    # -- 对外接口 (与 CellCounterEngine 对齐) --
+    def count_live_dead(self, img_path):
+        """单张图: 返回 {'green': n, 'red': n}.
+        g 图数绿色通道(活菌), r 图数红色通道(死菌) — ImageJ 宏已按命名通道单边计数.
+        """
+        img_path = os.path.abspath(img_path)
+        d = os.path.dirname(img_path)
+        if d not in self._cache:
+            self._batch_dir(d)
+        fn = os.path.basename(img_path)
+        cnt = self._cache[d].get(fn, 0)
+        low = fn.lower()
+        # 命名通道: 形如 '1-g2.tif' / 'c_r1.tif' 中 g/r 位于数字前
+        import re
+        m = re.search(r"[-_]?([rg])[_-]?\d+", low)
+        is_g = (m.group(1) == "g") if m else ("-g" in low)
+        return {"green": cnt if is_g else 0, "red": 0 if is_g else cnt}
+
+    def count_live_dead_pair(self, g_img, r_img):
+        """(可选) 显式配对, 避免文件名歧义"""
+        d = os.path.dirname(os.path.abspath(g_img))
+        if d not in self._cache:
+            self._batch_dir(d)
+        fn_g = os.path.basename(g_img)
+        fn_r = os.path.basename(r_img)
+        live = self._cache[d].get(fn_g, 0)
+        dead = self._cache[d].get(fn_r, 0)
+        return {"green": live, "red": dead}
+
+
 class CellCounterEngine:
     """荧光图像细胞计数引擎 (分水岭粘连分割版)"""
 
@@ -415,8 +513,18 @@ class LiveDeadCellCounter:
         }
 
 
-def run(folder, output_dir="output", area_um2=None, **engine_kwargs):
-    """一键 LIVE/DEAD 细胞计数分析"""
-    engine = CellCounterEngine(**engine_kwargs)
+def run(folder, output_dir="output", area_um2=None, backend="opencv", **engine_kwargs):
+    """一键 LIVE/DEAD 细胞计数分析
+
+    backend: "opencv" (默认, 原分水岭引擎) / "imagej" (开源 ImageJ 引擎,
+             自适应阈值+Analyze Particles; 依赖 F:/ImageJ 经典版)
+    """
+    if backend == "imagej":
+        ij_kw = {k: engine_kwargs[k] for k in
+                 ("imagej_dir", "min_size", "max_size", "bg_offset")
+                 if k in engine_kwargs}
+        engine = ImageJEngine(**ij_kw)
+    else:
+        engine = CellCounterEngine(**engine_kwargs)
     analyzer = LiveDeadCellCounter(engine=engine, area_um2=area_um2)
     return analyzer.report(folder, output_dir)
