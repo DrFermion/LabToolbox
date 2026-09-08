@@ -283,9 +283,11 @@ class LiveDeadCellCounter:
         # 每张图对应面积 (µm²), 用于换算 CFU/cm²; 默认 None = 只输出计数
         self.area_um2 = area_um2
 
-    def scan_structure(self, root):
+    def scan_structure(self, root, skip_repeats=()):
         """扫描 repeat 文件夹结构, 返回:
-        {repeat: {time: [image_paths]}}"""
+        {repeat: {time: [image_paths]}}
+        skip_repeats: 跳过的 repeat 名 (如 ("repeat2",)), 用于数据不全/无效组
+        """
         if not os.path.isdir(root):
             raise ValueError(f"输入不是文件夹: {root}")
         repeats = sorted(
@@ -308,6 +310,8 @@ class LiveDeadCellCounter:
                         times[t_dir.lower()] = imgs
             if times:
                 structure[rep] = times
+        for r in skip_repeats:
+            structure.pop(r, None)
         if not structure:
             raise ValueError(
                 "未找到 repeat 文件夹结构。需要: 根目录/repeat1/1h/*.tif, "
@@ -511,10 +515,11 @@ class LiveDeadCellCounter:
         plt.close(fig)
         return fig_path
 
-    def report(self, root, output_dir="output", verbose=True):
-        """完整分析: 计数 → 汇总表 → 柱状图 → ANOVA"""
+    def report(self, root, output_dir="output", verbose=True, skip_repeats=()):
+        """完整分析: 计数 → 汇总表 → 柱状图 → ANOVA
+        skip_repeats: 跳过无效 repeat (如 ("repeat2",))"""
         ensure_output_dir(output_dir)
-        structure = self.scan_structure(root)
+        structure = self.scan_structure(root, skip_repeats=skip_repeats)
         df = self.count_all(structure, verbose=verbose)
         # 保存原始计数
         raw_csv = save_csv(df, f"{output_dir}/livedead_raw_counts.csv")
@@ -534,11 +539,13 @@ class LiveDeadCellCounter:
         }
 
 
-def run(folder, output_dir="output", area_um2=None, backend="opencv", **engine_kwargs):
+def run(folder, output_dir="output", area_um2=None, backend="opencv",
+        skip_repeats=(), **engine_kwargs):
     """一键 LIVE/DEAD 细胞计数分析
 
     backend: "opencv" (默认, 原分水岭引擎) / "imagej" (开源 ImageJ 引擎,
              自适应阈值+Analyze Particles; 依赖 F:/ImageJ 经典版)
+    skip_repeats: 跳过无效 repeat (如 ("repeat2",))
     """
     if backend == "imagej":
         ij_kw = {k: engine_kwargs[k] for k in
@@ -548,4 +555,4 @@ def run(folder, output_dir="output", area_um2=None, backend="opencv", **engine_k
     else:
         engine = CellCounterEngine(**engine_kwargs)
     analyzer = LiveDeadCellCounter(engine=engine, area_um2=area_um2)
-    return analyzer.report(folder, output_dir)
+    return analyzer.report(folder, output_dir, skip_repeats=skip_repeats)
