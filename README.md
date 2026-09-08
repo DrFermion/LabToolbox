@@ -82,3 +82,18 @@ labtoolbox/
 ## 📄 License
 
 MIT (待定)
+
+## 🧰 开源工具后端 (2026-09-08)
+
+科研可信性: 计数与 AFM 处理可切换到审稿人认可的开源工具内核, 与自研 Python 交叉验证一致。
+
+- **ImageJ 计数**: `labtoolbox livedead` 系列 `run(backend="imagej")` — 经典 ImageJ 1.54 headless
+  批处理 (自适应阈值背景众数+40 + Analyze Particles 3-500px)。宏在 `scripts/imagej/count_livedead.ijm`
+  (引擎缺失时自动部署到 ImageJ 安装目录)。ImageJ 需装于 `F:/ImageJ/ImageJ` (经典 1.54, 非 Fiji)。
+  对比: 515nm 组 160 配对, ImageJ vs 旧 OpenCV 引擎差异主因 = 旧引擎缺通道陷阱修正。
+- **Gwyddion AFM 内核**: `labtoolbox surfmetrics --backend gwyddion` — WSL Ubuntu 内 Gwyddion 2.67
+  内核 (pygwy, python2.7 编译), 真·平面扣除 + ISO 统计。批处理脚本 `scripts/gwy_batch.py` 部署于
+  WSL `/usr/local/bin/gwy_batch.py`。对比: 515 样品 20 ibw, Python vs Gwyddion raw 100% 逐位一致;
+  ZS 通道 level 修正未展平文件 (Sa 16.1→3.8 nm)。
+- 对比复现: `scripts/compare_count_backends.py` (计数), `scripts/compare_surf_515.py` / 
+  `compare_surf_515_zs.py` (AFM), 输出在 `scripts/output/` (不入库)。

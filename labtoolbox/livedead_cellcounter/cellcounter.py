@@ -69,7 +69,28 @@ class ImageJEngine:
 
     # -- 内部: 目录级 ImageJ 批处理 --
     def _macro_path(self):
-        return os.path.join(self.imagej_dir, "macros", "count_livedead.ijm")
+        """宏文件路径: ImageJ 安装目录优先; 缺失则从仓库 scripts/imagej/ 自动部署.
+        仓库副本: E:/LabToolbox/scripts/imagej/count_livedead.ijm (随 git 分发, 自包含)
+        """
+        import shutil
+        inst = os.path.join(self.imagej_dir, "macros", "count_livedead.ijm")
+        if os.path.exists(inst):
+            return inst
+        # 仓库副本 (本文件 labtoolbox/livedead_cellcounter/ → 上三级 = 仓库根)
+        repo_macro = os.path.join(os.path.dirname(__file__), "..", "..", "..",
+                                  "scripts", "imagej", "count_livedead.ijm")
+        repo_macro = os.path.normpath(repo_macro)
+        if os.path.exists(repo_macro):
+            macros_dir = os.path.join(self.imagej_dir, "macros")
+            try:
+                os.makedirs(macros_dir, exist_ok=True)
+                shutil.copy2(repo_macro, inst)
+                print(f"ImageJ 宏已自动部署: {repo_macro} -> {inst}")
+                return inst
+            except OSError as e:
+                print(f"宏自动部署失败 ({e}), 改用仓库副本直读")
+                return repo_macro
+        return inst
 
     def _batch_dir(self, directory):
         """跑一次 ImageJ 批处理整个目录, 填充缓存 {fname: count}"""
