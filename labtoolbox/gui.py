@@ -392,10 +392,12 @@ class LabToolboxApp:
         # 结构说明
         tip = ttk.Label(inner, foreground="#a6adc8", wraplength=650, justify="left",
                         text=tr("结构: 根文件夹/repeat1/1h/1-g1.tif (g=活菌) + 1-r1.tif (r=死菌)\n"
-                                "文件名: {区域}-{g|r}{编号}, 区域 c=Control, 1/2/3=测试区", self.lang))
+                                "文件名: {区域}-{g|r}{编号}, 区域 c=Control, 1/2/3=测试区\n"
+                                "引擎: ImageJ 1.54 自适应阈值 + Analyze Particles (阈值/圆形度参数仅旧 Python 引擎用)", self.lang))
         tip.pack(fill="x", padx=8, pady=4)
         self._widgets.append((tip, "结构: 根文件夹/repeat1/1h/1-g1.tif (g=活菌) + 1-r1.tif (r=死菌)\n"
-                                   "文件名: {区域}-{g|r}{编号}, 区域 c=Control, 1/2/3=测试区"))
+                                   "文件名: {区域}-{g|r}{编号}, 区域 c=Control, 1/2/3=测试区\n"
+                                   "引擎: ImageJ 1.54 自适应阈值 + Analyze Particles (阈值/圆形度参数仅旧 Python 引擎用)"))
 
         # 参数 (可调)
         row = ttk.Frame(inner); row.pack(fill="x", pady=3)

@@ -547,12 +547,13 @@ class LiveDeadCellCounter:
         }
 
 
-def run(folder, output_dir="output", area_um2=None, backend="opencv",
+def run(folder, output_dir="output", area_um2=None, backend="imagej",
         skip_repeats=(), **engine_kwargs):
     """一键 LIVE/DEAD 细胞计数分析
 
-    backend: "opencv" (默认, 原分水岭引擎) / "imagej" (开源 ImageJ 引擎,
-             自适应阈值+Analyze Particles; 依赖 F:/ImageJ 经典版)
+    backend: "imagej" (默认, 开源 ImageJ 引擎 — 自适应阈值+Analyze Particles,
+             经典 ImageJ 1.54, 装于 F:/ImageJ) / "opencv" (旧的 Python 分水岭引擎,
+             仅保留作故障排查/回归对照, 方法学上已被 ImageJ 取代)
     skip_repeats: 跳过无效 repeat (如 ("repeat2",))
     """
     if backend == "imagej":

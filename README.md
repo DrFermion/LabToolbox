@@ -87,10 +87,12 @@ MIT (待定)
 
 科研可信性: 计数与 AFM 处理可切换到审稿人认可的开源工具内核, 与自研 Python 交叉验证一致。
 
-- **ImageJ 计数**: `labtoolbox livedead` 系列 `run(backend="imagej")` — 经典 ImageJ 1.54 headless
-  批处理 (自适应阈值背景众数+40 + Analyze Particles 3-500px)。宏在 `scripts/imagej/count_livedead.ijm`
+- **ImageJ 计数 (默认引擎)**: `livedead_cellcounter.run()` 默认 `backend="imagej"` — 经典 ImageJ 1.54
+  headless 批处理 (自适应阈值背景众数+40 + Analyze Particles 3-500px)。宏在 `scripts/imagej/count_livedead.ijm`
   (引擎缺失时自动部署到 ImageJ 安装目录)。ImageJ 需装于 `F:/ImageJ/ImageJ` (经典 1.54, 非 Fiji)。
-  对比: 515nm 组 160 配对, ImageJ vs 旧 OpenCV 引擎差异主因 = 旧引擎缺通道陷阱修正。
+  旧的 Python/OpenCV 分水岭引擎保留为 `backend="opencv"`, 仅供故障排查/回归对照 —
+  方法学与交付统一走 ImageJ (2026-09-11 定), 不再做 Python/ImageJ 双引擎交叉验证。
+  历史对比: 515nm 组 160 配对, ImageJ vs 旧 OpenCV 引擎差异主因 = 旧引擎缺通道陷阱修正。
 - **Gwyddion AFM 内核**: `labtoolbox surfmetrics --backend gwyddion` — WSL Ubuntu 内 Gwyddion 2.67
   内核 (pygwy, python2.7 编译), 真·平面扣除 + ISO 统计。批处理脚本 `scripts/gwy_batch.py` 部署于
   WSL `/usr/local/bin/gwy_batch.py`。对比: 515 样品 20 ibw, Python vs Gwyddion raw 100% 逐位一致;

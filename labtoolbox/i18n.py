@@ -49,9 +49,11 @@ TRANSLATIONS = {
         "Fluorescence counting: repeat1/2/3 → 1h/3h → area-channelN",
     "图像根文件夹": "Image root folder",
     "结构: 根文件夹/repeat1/1h/1-g1.tif (g=活菌) + 1-r1.tif (r=死菌)\n"
-    "文件名: {区域}-{g|r}{编号}, 区域 c=Control, 1/2/3=测试区":
+    "文件名: {区域}-{g|r}{编号}, 区域 c=Control, 1/2/3=测试区\n"
+    "引擎: ImageJ 1.54 自适应阈值 + Analyze Particles (阈值/圆形度参数仅旧 Python 引擎用)":
         "Structure: root/repeat1/1h/1-g1.tif (g=live) + 1-r1.tif (r=dead)\n"
-        "Filename: {area}-{g|r}{number}, c=Control, 1/2/3=test area",
+        "Filename: {area}-{g|r}{number}, c=Control, 1/2/3=test area\n"
+        "Engine: ImageJ 1.54 adaptive threshold + Analyze Particles (threshold/roundness apply to the legacy Python engine only)",
     "最小面积(px)": "Min area (px)",
     "圆形度": "Roundness",
     "绿阈值": "Green thresh",
