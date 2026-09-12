@@ -72,7 +72,9 @@ def cmd_surfmetrics(args):
     from .surfmetrics import run as sm_run
     result = sm_run(file=args.file, folder=args.folder, channel=args.channel,
                     px=args.px, py=args.py, output_dir=args.output, z_mode=args.z_mode,
-                    backend=args.backend, level=not args.no_level)
+                    backend=args.backend, level=not args.no_level,
+                    profiles=not args.no_profiles,
+                    profile_row=args.profile_row, profile_col=args.profile_col)
     print(f"✅ 表面形貌分析完成: {len(result['results'])} 个文件")
     for r in result["results"]:
         tag = f" [{r.get('backend', 'python')}" + (", level]" if r.get("level") else "]")
@@ -140,8 +142,13 @@ def build_parser():
     p.add_argument("--px", type=float, default=None, help="像素尺寸 X (nm; .ibw 自动读取, 其他格式建议给)")
     p.add_argument("--py", type=float, default=None, help="像素尺寸 Y (nm, 默认=px)")
     p.add_argument("--output", default="output", help="输出目录")
-    p.add_argument("--z-mode", default="auto", dest="z_mode",
-                   help="3D 图 z 轴模式: auto (默认, XY 等比例+形貌清晰) / real (全等比) / 数值放大系数")
+    p.add_argument("--z-mode", default="real", dest="z_mode",
+                   help="3D 图 z 轴模式: real (默认, z 与 XY 同比例, 不做纵向夸张) / "
+                        "auto (z 约 xy 尺度的 25%, 起伏扁平时看得清) / 数值放大系数")
+    p.add_argument("--no-profiles", action="store_true",
+                   help="不出参考线剖面图 (默认会出: 左 3D 等比例 + 横/纵参考线, 右 沿线的深度曲线)")
+    p.add_argument("--profile-row", type=int, default=None, help="横参考线所在行 (默认正中)")
+    p.add_argument("--profile-col", type=int, default=None, help="纵参考线所在列 (默认正中)")
     p.add_argument("--backend", default="python", choices=["python", "gwyddion"],
                    help="python (默认, 自研) / gwyddion (WSL Gwyddion 2.67 内核真处理)")
     p.add_argument("--no-level", action="store_true",

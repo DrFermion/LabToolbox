@@ -115,6 +115,28 @@ def surface_metrics(z, px, py):
             "S3d_um2": S3d / 1e6, "Sproj_um2": Sproj / 1e6, "Sdr_pct": Sdr}
 
 
+_CJK_READY = False
+
+
+def _setup_cjk_font():
+    """让图里的中文正常显示 (matplotlib 默认字体没有汉字 → 出豆腐块)."""
+    global _CJK_READY
+    if _CJK_READY:
+        return
+    import matplotlib
+    from matplotlib import font_manager
+    try:
+        available = {f.name for f in font_manager.fontManager.ttflist}
+    except Exception:  # noqa: BLE001
+        return
+    for cand in ("Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "Source Han Sans SC"):
+        if cand in available:
+            matplotlib.rcParams["font.sans-serif"] = [cand, "DejaVu Sans"]
+            matplotlib.rcParams["axes.unicode_minus"] = False
+            break
+    _CJK_READY = True
+
+
 def plot3d(z, px, py, out, title=None, z_mode="auto"):
     """单文件 3D 表面图. z: nm; px/py: nm/px.
 
@@ -127,6 +149,7 @@ def plot3d(z, px, py, out, title=None, z_mode="auto"):
     """
     import matplotlib
     matplotlib.use("Agg")
+    _setup_cjk_font()
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
     h, w = z.shape
@@ -165,10 +188,79 @@ def plot3d(z, px, py, out, title=None, z_mode="auto"):
     return out
 
 
+def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real"):
+    """参考线剖面图: 左 = 3D 形貌 (z 与 XY 同比例, 横/纵两条参考线用虚线标出), 右 = 沿这两条线的深度曲线.
+
+    三维图看整体形貌, 剖面图才是"标尺"——起伏的真实幅度 (P-V) 和周期性只有一条线量得出来。
+    row/col: 参考线所在的行/列索引 (默认取正中); z: nm; px/py: nm/px。
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    _setup_cjk_font()
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+    h, w = z.shape
+    pyv = py or px
+    row = h // 2 if row is None else max(0, min(h - 1, int(row)))
+    col = w // 2 if col is None else max(0, min(w - 1, int(col)))
+    xr = (w - 1) * px / 1000.0          # µm
+    yr = (h - 1) * pyv / 1000.0         # µm
+    zr = float(np.ptp(z))               # nm
+    k = 1.0
+    if z_mode == "auto":
+        if zr > 0:
+            k = max(0.25 * (xr + yr) / 2.0 / (zr / 1000.0), 1.0)
+    elif z_mode != "real":
+        k = float(z_mode)
+    X, Y = np.meshgrid(np.arange(w) * px / 1000.0, np.arange(h) * pyv / 1000.0)
+    m = surface_metrics(z, px, pyv)
+    fig = plt.figure(figsize=(13.5, 5.4))
+
+    # ── 左: 3D, z 与 XY 同比例 ──
+    ax = fig.add_subplot(1, 2, 1, projection="3d")
+    surf = ax.plot_surface(X, Y, z, cmap="viridis", linewidth=0,
+                           antialiased=True, rstride=1, cstride=1)
+    lift = max(zr, 1e-9) * 0.04      # 参考线抬离表面一点, 免得被形貌盖住
+    ax.plot(X[row, :], Y[row, :], z[row, :] + lift, color="#0072B2", ls="--", lw=1.6)
+    ax.plot(X[:, col], Y[:, col], z[:, col] + lift, color="#D55E00", ls="--", lw=1.6)
+    ax.set_box_aspect((xr, yr, zr / 1000.0 * k))
+    ax.set_xlabel("X (µm)")
+    ax.set_ylabel("Y (µm)")
+    ax.set_zlabel("Height (nm)")
+    scale_tag = "z 与 XY 同比例" if (z_mode == "real" or abs(k - 1.0) < 1e-9) else f"z ×{k:.3g}"
+    ax.set_title(f"{title or '3D surface'}  [{scale_tag}]", fontsize=10)
+    ax.view_init(elev=42, azim=-60)
+    fig.colorbar(surf, ax=ax, shrink=0.6, pad=0.08, label="Height (nm)")
+
+    # ── 右: 沿两条参考线的深度曲线 ──
+    ax2 = fig.add_subplot(1, 2, 2)
+    xh = np.arange(w) * px / 1000.0
+    yv = np.arange(h) * pyv / 1000.0
+    zh = z[row, :]
+    zv = z[:, col]
+    ax2.plot(xh, zh, color="#0072B2", lw=1.3, label=f"横线  Y = {Y[row, 0]:.2f} µm")
+    ax2.plot(yv, zv, color="#D55E00", lw=1.3, label=f"纵线  X = {X[0, col]:.2f} µm")
+    ax2.axhline(float(zh.mean()), color="#0072B2", lw=0.6, ls=":", alpha=0.55)
+    ax2.axhline(float(zv.mean()), color="#D55E00", lw=0.6, ls=":", alpha=0.55)
+    ax2.set_xlabel("Distance (µm)")
+    ax2.set_ylabel("Height (nm)")
+    ax2.set_title(f"沿参考线的深度曲线   Sa={m['Sa_nm']:.2f} nm | "
+                  f"横线 P-V {np.ptp(zh):.1f} nm | 纵线 P-V {np.ptp(zv):.1f} nm", fontsize=10)
+    ax2.grid(alpha=0.25)
+    ax2.legend(fontsize=9, loc="best")
+
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    fig.savefig(out, dpi=200)
+    plt.close(fig)
+    return out
+
+
 def plot_grid(files_data, out, title=None, z_mode="auto"):
     """多文件 3D 网格图 (≤9 个); XY 等比例, z_mode 同 plot3d"""
     import matplotlib
     matplotlib.use("Agg")
+    _setup_cjk_font()
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
     n = len(files_data)
@@ -254,11 +346,15 @@ def gwy_batch_wsl(paths, level=True, channel=None, timeout=600):
 
 
 def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="output",
-        z_mode="auto", backend="python", level=True):
+        z_mode="real", backend="python", level=True,
+        profiles=True, profile_row=None, profile_col=None):
     """统一入口 (CLI/GUI 调用).
 
     file: 单个高度图文件; folder: 批量处理文件夹内所有 .ibw
-    z_mode: 3D 图 z 轴显示模式 — "auto" (默认, XY 等比例+形貌清晰) / "real" (全等比) / 数值放大系数
+    z_mode: 3D 图 z 轴显示模式 — "real" (默认, z 与 XY 同比例, 不做纵向夸张) /
+            "auto" (z 显示为 xy 平均尺度的 ~25%, 起伏扁平时看得清楚) / 数值放大系数
+    profiles: 是否额外输出"参考线剖面图" (左 3D 等比例 + 横/纵参考线虚线, 右 沿两条线的深度曲线);
+              profile_row/profile_col 指定参考线所在的像素行列 (默认取正中)
     backend: "python" (默认, 自研算法) / "gwyddion" (WSL Gwyddion 2.67 内核,
              真·Gwyddion 平面扣除+统计; level=True 时先平面扣除)
     返回 dict: {"results": [...], "csv": path, "figures": [...], "grid": path|None}
@@ -307,6 +403,11 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
                 plot3d(z, px, py or px, fig_p, z_mode=z_mode,
                        title=f"{name}  3D surface  {src_tag}")
                 figures.append(fig_p)
+                if profiles:
+                    fig_pr = os.path.join(out, f"{name}_profile.png")
+                    plot_profiles(z, px, py or px, fig_pr, row=profile_row, col=profile_col,
+                                  title=name, z_mode=z_mode)
+                    figures.append(fig_pr)
                 grid_data.append((name, z, px, {
                     "Sa_nm": g.get("Sa_nm"), "Sq_nm": g.get("Sq_nm"),
                     "Sdr_pct": m_py["Sdr_pct"] if m_py else 0.0}))
@@ -348,6 +449,11 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
         fig_p = os.path.join(out, f"{name}_3D.png")
         plot3d(z, px, py or px, fig_p, title=f"{name}  3D surface", z_mode=z_mode)
         figures.append(fig_p)
+        if profiles:
+            fig_pr = os.path.join(out, f"{name}_profile.png")
+            plot_profiles(z, px, py or px, fig_pr, row=profile_row, col=profile_col,
+                          title=name, z_mode=z_mode)
+            figures.append(fig_pr)
         grid_data.append((name, z, px, m))
         print(f"  {name}: Sa={m['Sa_nm']:.2f} nm, Sq={m['Sq_nm']:.2f} nm, "
               f"Sz={m['Sz_nm']:.1f} nm, Sdr={m['Sdr_pct']:.3f}%")
