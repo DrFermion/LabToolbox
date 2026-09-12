@@ -137,6 +137,22 @@ def _setup_cjk_font():
     _CJK_READY = True
 
 
+def _apply_z_ticks(ax, z, xr, yr, zr, k):
+    """Set z ticks so the labels stay readable when the z direction is tiny on screen.
+
+    In true-scale / slightly exaggerated views the z extent can be a few per cent of the XY
+    extent, and matplotlib's default 5-6 tick labels then overlap into an unreadable smear.
+    Returns True when the ticks were dropped (the colour bar carries the height scale).
+    """
+    ratio = (zr / 1000.0 * k) / max((xr + yr) / 2.0, 1e-9)
+    if ratio < 0.10:
+        ax.set_zticks([])
+        return True
+    if ratio < 0.5:
+        ax.set_zticks(np.linspace(float(z.min()), float(z.max()), 3))
+    return False
+
+
 def plot3d(z, px, py, out, title=None, z_mode="real"):
     """Single-file 3D surface map. z: nm; px/py: nm per pixel.
 
@@ -169,14 +185,7 @@ def plot3d(z, px, py, out, title=None, z_mode="real"):
                            antialiased=True, rstride=1, cstride=1)
     # 横纵轴 (X/Y) 严格按物理尺寸比例 + z 按显示模式; z 数据轴保持真实 nm
     ax.set_box_aspect((xr, yr, zr / 1000.0 * k))
-    # z 轴刻度: 等比/微夸张时 z 方向在屏幕上很扁, matplotlib 默认那串数字会糊成一团
-    ticks_hidden = False
-    ratio = (zr / 1000.0 * k) / max((xr + yr) / 2.0, 1e-9)
-    if ratio < 0.03:
-        ax.set_zticks([])          # 高度数值由 colorbar 承载
-        ticks_hidden = True
-    elif ratio < 0.5:
-        ax.set_zticks(np.linspace(float(z.min()), float(z.max()), 4))
+    ticks_hidden = _apply_z_ticks(ax, z, xr, yr, zr, k)
     ax.set_xlabel("X (µm)")
     ax.set_ylabel("Y (µm)")
     ax.set_zlabel("Height (nm)")
@@ -243,14 +252,7 @@ def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real")
     ax.text(X[h - 1, col], Y[h - 1, col], vz[-1], f" V-line (along Y)\n X={X[0, col]:.2f} µm",
             color=V_COL, fontsize=7.5, zorder=10)
     ax.set_box_aspect((xr, yr, zr / 1000.0 * k))
-    # z 轴刻度: 等比/微夸张时 z 方向在屏幕上很扁, matplotlib 默认那串数字会糊成一团
-    ticks_hidden = False
-    ratio = (zr / 1000.0 * k) / max((xr + yr) / 2.0, 1e-9)
-    if ratio < 0.03:
-        ax.set_zticks([])          # 高度数值由 colorbar 承载
-        ticks_hidden = True
-    elif ratio < 0.5:
-        ax.set_zticks(np.linspace(float(z.min()), float(z.max()), 4))
+    ticks_hidden = _apply_z_ticks(ax, z, xr, yr, zr, k)
     ax.set_xlabel("X (µm)")
     ax.set_ylabel("Y (µm)")
     ax.set_zlabel("Height (nm)")
