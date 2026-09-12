@@ -189,10 +189,15 @@ def plot3d(z, px, py, out, title=None, z_mode="auto"):
 
 
 def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real"):
-    """参考线剖面图: 左 = 3D 形貌 (z 与 XY 同比例, 横/纵两条参考线用虚线标出), 右 = 沿这两条线的深度曲线.
+    """Reference-line profile figure (English only).
 
-    三维图看整体形貌, 剖面图才是"标尺"——起伏的真实幅度 (P-V) 和周期性只有一条线量得出来。
-    row/col: 参考线所在的行/列索引 (默认取正中); z: nm; px/py: nm/px。
+    Left  = 3D topography at true z/XY scale with BOTH reference lines drawn and labelled with
+             their orientation (H-line runs along X, V-line runs along Y) and their position.
+    Right = depth profiles measured along those two lines, in the same colours.
+
+    A line is the ruler: the true peak-to-valley amplitude and the periodicity of a surface are
+    only measurable along a profile, while the 3D view shows the overall morphology.
+    row/col: pixel row / column carrying the reference lines (default: centre).
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -214,38 +219,46 @@ def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real")
         k = float(z_mode)
     X, Y = np.meshgrid(np.arange(w) * px / 1000.0, np.arange(h) * pyv / 1000.0)
     m = surface_metrics(z, px, pyv)
+    H_COL, V_COL = "#0072B2", "#D55E00"      # H-line (blue) / V-line (orange)
     fig = plt.figure(figsize=(13.5, 5.4))
 
-    # ── 左: 3D, z 与 XY 同比例 ──
+    # ── left: 3D topography, z and XY at the same scale ──
     ax = fig.add_subplot(1, 2, 1, projection="3d")
     surf = ax.plot_surface(X, Y, z, cmap="viridis", linewidth=0,
                            antialiased=True, rstride=1, cstride=1)
-    lift = max(zr, 1e-9) * 0.04      # 参考线抬离表面一点, 免得被形貌盖住
-    ax.plot(X[row, :], Y[row, :], z[row, :] + lift, color="#0072B2", ls="--", lw=1.6)
-    ax.plot(X[:, col], Y[:, col], z[:, col] + lift, color="#D55E00", ls="--", lw=1.6)
+    lift = max(zr, 1e-9) * 0.04      # lift the lines off the surface so the relief hides nothing
+    hz, vz = z[row, :] + lift, z[:, col] + lift
+    ax.plot(X[row, :], Y[row, :], hz, color=H_COL, ls="--", lw=1.7)
+    ax.plot(X[:, col], Y[:, col], vz, color=V_COL, ls="--", lw=1.7)
+    # orientation of each reference line, written on the line itself
+    ax.text(X[row, 0], Y[row, 0], hz[0], f" H-line (along X)\n Y={Y[row, 0]:.2f} µm",
+            color=H_COL, fontsize=7.5, zorder=10)
+    ax.text(X[h - 1, col], Y[h - 1, col], vz[-1], f" V-line (along Y)\n X={X[0, col]:.2f} µm",
+            color=V_COL, fontsize=7.5, zorder=10)
     ax.set_box_aspect((xr, yr, zr / 1000.0 * k))
     ax.set_xlabel("X (µm)")
     ax.set_ylabel("Y (µm)")
     ax.set_zlabel("Height (nm)")
-    scale_tag = "z 与 XY 同比例" if (z_mode == "real" or abs(k - 1.0) < 1e-9) else f"z ×{k:.3g}"
-    ax.set_title(f"{title or '3D surface'}  [{scale_tag}]", fontsize=10)
+    scale_tag = "z and XY at the same scale" if abs(k - 1.0) < 1e-9 else f"z x{k:.3g}"
+    ax.set_title(f"{title or '3D surface'}   [{scale_tag}]", fontsize=10)
     ax.view_init(elev=42, azim=-60)
     fig.colorbar(surf, ax=ax, shrink=0.6, pad=0.08, label="Height (nm)")
 
-    # ── 右: 沿两条参考线的深度曲线 ──
+    # ── right: depth profiles along the two reference lines ──
     ax2 = fig.add_subplot(1, 2, 2)
     xh = np.arange(w) * px / 1000.0
     yv = np.arange(h) * pyv / 1000.0
     zh = z[row, :]
     zv = z[:, col]
-    ax2.plot(xh, zh, color="#0072B2", lw=1.3, label=f"横线  Y = {Y[row, 0]:.2f} µm")
-    ax2.plot(yv, zv, color="#D55E00", lw=1.3, label=f"纵线  X = {X[0, col]:.2f} µm")
-    ax2.axhline(float(zh.mean()), color="#0072B2", lw=0.6, ls=":", alpha=0.55)
-    ax2.axhline(float(zv.mean()), color="#D55E00", lw=0.6, ls=":", alpha=0.55)
+    ax2.plot(xh, zh, color=H_COL, lw=1.3, label=f"H-line (along X)   Y = {Y[row, 0]:.2f} µm")
+    ax2.plot(yv, zv, color=V_COL, lw=1.3, label=f"V-line (along Y)   X = {X[0, col]:.2f} µm")
+    ax2.axhline(float(zh.mean()), color=H_COL, lw=0.6, ls=":", alpha=0.55)
+    ax2.axhline(float(zv.mean()), color=V_COL, lw=0.6, ls=":", alpha=0.55)
     ax2.set_xlabel("Distance (µm)")
     ax2.set_ylabel("Height (nm)")
-    ax2.set_title(f"沿参考线的深度曲线   Sa={m['Sa_nm']:.2f} nm | "
-                  f"横线 P-V {np.ptp(zh):.1f} nm | 纵线 P-V {np.ptp(zv):.1f} nm", fontsize=10)
+    ax2.set_title(f"Depth profiles along the reference lines    Sa = {m['Sa_nm']:.2f} nm    "
+                  f"H-line P-V {np.ptp(zh):.1f} nm  |  V-line P-V {np.ptp(zv):.1f} nm",
+                  fontsize=10)
     ax2.grid(alpha=0.25)
     ax2.legend(fontsize=9, loc="best")
 
