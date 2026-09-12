@@ -204,16 +204,111 @@ def plot3d(z, px, py, out, title=None, z_mode="real"):
     return out
 
 
-def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real"):
+def _norm_dir(deg):
+    """Fold a ruler direction into [-90, 90) — a line has no sense of forward/backward."""
+    return ((float(deg) + 90.0) % 180.0) - 90.0
+
+
+def stripe_orientation(z, px, py):
+    """Dominant stripe (LIPSS-like) direction from the 2D FFT of the height map.
+
+    A corrugated surface shows its periodicity along the direction PERPENDICULAR to the ridges,
+    so the FFT peak direction is exactly the direction a profile line has to run to cross the
+    ripples. Returns:
+
+        {"cross_deg":  ruler direction that crosses the ripples   (deg, CCW from +X, mod 180)
+         "ridge_deg":  ridge (stripe) direction = cross_deg + 90
+         "period_nm":  stripe period,
+         "strength":   peak / median spectral magnitude — how stripe-like the surface is}
+    """
+    h, w = z.shape
+    yy, xx = np.mgrid[0:h, 0:w]
+    A = np.column_stack([xx.ravel() / max(w - 1, 1), yy.ravel() / max(h - 1, 1),
+                         np.ones(h * w)])
+    coef, *_ = np.linalg.lstsq(A, z.ravel(), rcond=None)             # drop the tilt first
+    zp = z - (A @ coef).reshape(h, w)
+    F = np.fft.fftshift(np.fft.fft2(zp * np.outer(np.hanning(h), np.hanning(w))))
+    mag = np.abs(F)
+    cy, cx = h // 2, w // 2
+    mag[max(0, cy - 2):cy + 3, max(0, cx - 2):cx + 3] = 0            # kill DC + neighbours
+    mag[h // 2:, :] = 0                                              # one half plane (symmetric)
+    py2, px2 = np.unravel_index(int(np.argmax(mag)), mag.shape)
+    alive = mag[mag > 0]
+    med = float(np.median(alive)) if alive.size else 1.0
+    fx = (px2 - cx) / (w * px)          # cycles/nm along X
+    fy = (py2 - cy) / (h * py)          # cycles/nm along Y
+    f = float(np.hypot(fx, fy))
+    ang = float(np.degrees(np.arctan2(fy, fx)))      # periodicity direction in the XY plane
+    return {"cross_deg": _norm_dir(ang),
+            "ridge_deg": _norm_dir(ang + 90.0),
+            "period_nm": (1.0 / f) if f > 0 else float("nan"),
+            "strength": float(mag[py2, px2]) / (med or 1.0)}
+
+
+def _sample_line(z, px, py, spec):
+    """Sample the height map along one reference line.
+
+    spec = {"kind": "row", "pos": <pixel row>}         ruler along X at that row
+           {"kind": "col", "pos": <pixel column>}      ruler along Y at that column
+           {"kind": "angle", "deg": <deg CCW from +X>} ruler through the image centre
+
+    Returns (dist_um, height_nm, x_um, y_um): distance along the ruler measured from its start,
+    the height profile, and the ruler's coordinates on the surface (for the 3D overlay).
+    """
+    h, w = z.shape
+    kind = (spec or {}).get("kind", "row")
+    if kind == "row":
+        r = max(0, min(h - 1, int(spec.get("pos", h // 2))))
+        i = np.arange(w)
+        x = i * px / 1000.0
+        y = np.full(w, r * py / 1000.0)
+        return x - x[0], z[r, :].astype(float), x, y
+    if kind == "col":
+        c = max(0, min(w - 1, int(spec.get("pos", w // 2))))
+        j = np.arange(h)
+        x = np.full(h, c * px / 1000.0)
+        y = j * py / 1000.0
+        return y - y[0], z[:, c].astype(float), x, y
+
+    th = np.radians(float(spec.get("deg", 0.0)))
+    xc, yc = (w - 1) * px / 2000.0, (h - 1) * py / 2000.0       # centre, µm
+    dx, dy = np.cos(th), np.sin(th)
+    lim = []
+    for d, c, hi in ((dx, xc, (w - 1) * px / 1000.0), (dy, yc, (h - 1) * py / 1000.0)):
+        if abs(d) < 1e-12:
+            continue
+        lim.append(((hi - c) / d) if d > 0 else ((0.0 - c) / d))
+    L = max(0.0, (min(lim) if lim else 0.0) - 0.02 * min((w - 1) * px, (h - 1) * py) / 1000.0)
+    step = max(min(px, py) / 1000.0, 1e-6)
+    n = int(max(2, min(4000, round(2 * L / step))))             # ~one sample per pixel
+    t = np.linspace(-L, L, n)
+    xs, ys = xc + t * dx, yc + t * dy
+    fi = np.clip(xs * 1000.0 / px, 0, w - 1.001)
+    fj = np.clip(ys * 1000.0 / py, 0, h - 1.001)
+    i0, j0 = fi.astype(int), fj.astype(int)
+    i1, j1 = i0 + 1, j0 + 1
+    wi, wj = fi - i0, fj - j0
+    hgt = ((1 - wi) * (1 - wj) * z[j0, i0] + wi * (1 - wj) * z[j0, i1]
+           + (1 - wi) * wj * z[j1, i0] + wi * wj * z[j1, i1])
+    return t - t[0], hgt.astype(float), xs, ys
+
+
+def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real", lines=None):
     """Reference-line profile figure (English only).
 
-    Left  = 3D topography at true z/XY scale with BOTH reference lines drawn and labelled with
-             their orientation (H-line runs along X, V-line runs along Y) and their position.
-    Right = depth profiles measured along those two lines, in the same colours.
+    Left  = 3D topography at true z/XY scale with the reference line(s) drawn on the surface and
+            labelled with their orientation and position.
+    Right = depth profiles measured along those same lines, in matching colours.
 
-    A line is the ruler: the true peak-to-valley amplitude and the periodicity of a surface are
-    only measurable along a profile, while the 3D view shows the overall morphology.
-    row/col: pixel row / column carrying the reference lines (default: centre).
+    lines=None reproduces the classic two-line figure (H-line along X + V-line along Y, through
+    the centre or through ``row``/``col``). Pass ``lines`` to choose the rulers explicitly:
+
+        [{"kind": "angle", "deg": 78.0}]                             # ONE ruler crossing the
+                                                                     # ripples (LIPSS)
+        [{"kind": "row", "pos": 256}, {"kind": "col", "pos": 256}]   # H + V (isotropic / NP)
+
+    A line is the ruler: peak-to-valley amplitude and the periodicity of a surface are only
+    measurable along a profile, while the 3D view shows the overall morphology.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -222,8 +317,6 @@ def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real")
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
     h, w = z.shape
     pyv = py or px
-    row = h // 2 if row is None else max(0, min(h - 1, int(row)))
-    col = w // 2 if col is None else max(0, min(w - 1, int(col)))
     xr = (w - 1) * px / 1000.0          # µm
     yr = (h - 1) * pyv / 1000.0         # µm
     zr = float(np.ptp(z))               # nm
@@ -235,22 +328,27 @@ def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real")
         k = float(z_mode)
     X, Y = np.meshgrid(np.arange(w) * px / 1000.0, np.arange(h) * pyv / 1000.0)
     m = surface_metrics(z, px, pyv)
-    H_COL, V_COL = "#0072B2", "#D55E00"      # H-line (blue) / V-line (orange)
-    fig = plt.figure(figsize=(13.5, 5.4))
 
-    # ── left: 3D topography, z and XY at the same scale ──
+    if lines is None:
+        r = h // 2 if row is None else max(0, min(h - 1, int(row)))
+        c = w // 2 if col is None else max(0, min(w - 1, int(col)))
+        lines = [{"kind": "row", "pos": r, "label": f"H-line (along X)\n Y = {r * pyv / 1000.0:.2f} µm"},
+                 {"kind": "col", "pos": c, "label": f"V-line (along Y)\n X = {c * px / 1000.0:.2f} µm"}]
+    PALETTE = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]
+
+    fig = plt.figure(figsize=(13.5, 5.4))
     ax = fig.add_subplot(1, 2, 1, projection="3d")
     surf = ax.plot_surface(X, Y, z, cmap="viridis", linewidth=0,
                            antialiased=True, rstride=1, cstride=1)
-    lift = max(zr, 1e-9) * 0.04      # lift the lines off the surface so the relief hides nothing
-    hz, vz = z[row, :] + lift, z[:, col] + lift
-    ax.plot(X[row, :], Y[row, :], hz, color=H_COL, ls="--", lw=1.7)
-    ax.plot(X[:, col], Y[:, col], vz, color=V_COL, ls="--", lw=1.7)
-    # orientation of each reference line, written on the line itself
-    ax.text(X[row, 0], Y[row, 0], hz[0], f" H-line (along X)\n Y={Y[row, 0]:.2f} µm",
-            color=H_COL, fontsize=7.5, zorder=10)
-    ax.text(X[h - 1, col], Y[h - 1, col], vz[-1], f" V-line (along Y)\n X={X[0, col]:.2f} µm",
-            color=V_COL, fontsize=7.5, zorder=10)
+    lift = max(zr, 1e-9) * 0.04      # lift the rulers off the surface so the relief hides nothing
+    profiles = []
+    for n, spec in enumerate(lines):
+        dist, hgt, xs, ys = _sample_line(z, px, pyv, spec)
+        col_ = PALETTE[n % len(PALETTE)]
+        ax.plot(xs, ys, hgt + lift, color=col_, ls="--", lw=1.7)
+        ax.text(xs[0], ys[0], hgt[0] + lift, " " + spec.get("label", f"line {n + 1}"),
+                color=col_, fontsize=7.5, zorder=10)
+        profiles.append((col_, spec.get("label", f"line {n + 1}").replace("\n", "   "), dist, hgt))
     ax.set_box_aspect((xr, yr, zr / 1000.0 * k))
     ticks_hidden = _apply_z_ticks(ax, z, xr, yr, zr, k)
     ax.set_xlabel("X (µm)")
@@ -263,20 +361,15 @@ def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real")
     ax.view_init(elev=42, azim=-60)
     fig.colorbar(surf, ax=ax, shrink=0.6, pad=0.08, label="Height (nm)")
 
-    # ── right: depth profiles along the two reference lines ──
     ax2 = fig.add_subplot(1, 2, 2)
-    xh = np.arange(w) * px / 1000.0
-    yv = np.arange(h) * pyv / 1000.0
-    zh = z[row, :]
-    zv = z[:, col]
-    ax2.plot(xh, zh, color=H_COL, lw=1.3, label=f"H-line (along X)   Y = {Y[row, 0]:.2f} µm")
-    ax2.plot(yv, zv, color=V_COL, lw=1.3, label=f"V-line (along Y)   X = {X[0, col]:.2f} µm")
-    ax2.axhline(float(zh.mean()), color=H_COL, lw=0.6, ls=":", alpha=0.55)
-    ax2.axhline(float(zv.mean()), color=V_COL, lw=0.6, ls=":", alpha=0.55)
+    for col_, label, dist, hgt in profiles:
+        ax2.plot(dist, hgt, color=col_, lw=1.3, label=label)
+        ax2.axhline(float(hgt.mean()), color=col_, lw=0.6, ls=":", alpha=0.55)
     ax2.set_xlabel("Distance (µm)")
     ax2.set_ylabel("Height (nm)")
-    ax2.set_title(f"Depth profiles along the reference lines    Sa = {m['Sa_nm']:.2f} nm    "
-                  f"H-line P-V {np.ptp(zh):.1f} nm  |  V-line P-V {np.ptp(zv):.1f} nm",
+    pv = "  |  ".join(f"{lbl.split('   ')[0]} P-V {np.ptp(hgt):.1f} nm"
+                      for _c, lbl, _d, hgt in profiles)
+    ax2.set_title(f"Depth profiles along the reference line(s)    Sa = {m['Sa_nm']:.2f} nm    {pv}",
                   fontsize=10)
     ax2.grid(alpha=0.25)
     ax2.legend(fontsize=9, loc="best")
@@ -287,6 +380,38 @@ def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real")
     plt.close(fig)
     return out
 
+
+def profile_lines_for(z, px, py, mode="hv", stripe_angle=None, row=None, col=None):
+    """Decide which ruler(s) a figure gets, and describe them.
+
+    mode: "hv"    = H-line + V-line (isotropic surfaces, nanopillar grids)
+          "cross" = ONE line crossing the ripples (LIPSS) — direction from the 2D FFT,
+                    or from ``stripe_angle`` when given
+          "auto"  = "cross" when the surface really is corrugated (FFT peak stands out),
+                    otherwise "hv"
+    Returns (lines, info) — info carries the detected direction/period for the CSV/report.
+    """
+    info = {"profile_mode": mode, "stripe_cross_deg": None, "stripe_ridge_deg": None,
+            "stripe_period_nm": None, "stripe_strength": None, "line_count": 0}
+    if mode in ("cross", "auto"):
+        st = stripe_orientation(z, px, py)
+        info.update({"stripe_cross_deg": st["cross_deg"], "stripe_ridge_deg": st["ridge_deg"],
+                     "stripe_period_nm": st["period_nm"], "stripe_strength": st["strength"]})
+        use_cross = True if mode == "cross" else st["strength"] >= 8.0
+        if use_cross:
+            deg = float(stripe_angle) if stripe_angle is not None else st["cross_deg"]
+            period = st["period_nm"]
+            info["profile_mode"] = "cross"
+            info["line_count"] = 1
+            lbl = (f"Ruler across the ripples   θ = {_norm_dir(deg):+.1f}°"
+                   + (f"\n (period ≈ {period:.0f} nm)" if period and period == period else ""))
+            return [{"kind": "angle", "deg": deg, "label": lbl}], info
+        info["profile_mode"] = "hv"
+    r = z.shape[0] // 2 if row is None else max(0, min(z.shape[0] - 1, int(row)))
+    c = z.shape[1] // 2 if col is None else max(0, min(z.shape[1] - 1, int(col)))
+    info["line_count"] = 2
+    return [{"kind": "row", "pos": r, "label": f"H-line (along X)\n Y = {r * (py or px) / 1000.0:.2f} µm"},
+            {"kind": "col", "pos": c, "label": f"V-line (along Y)\n X = {c * px / 1000.0:.2f} µm"}], info
 
 def plot_grid(files_data, out, title=None, z_mode="auto"):
     """多文件 3D 网格图 (≤9 个); XY 等比例, z_mode 同 plot3d"""
@@ -377,16 +502,31 @@ def gwy_batch_wsl(paths, level=True, channel=None, timeout=600):
     return rows
 
 
+def _profile_cells(r):
+    """参考线/条纹那几列 (CSV 用): mode / 线条数 / 跨纹方向 / 条纹走向 / 周期 / 峰强"""
+    def fmt(key, nd):
+        v = r.get(key)
+        return f"{v:.{nd}f}" if isinstance(v, (int, float)) and v == v else ""
+    return [r.get("profile_mode") or "",
+            r.get("line_count") if r.get("line_count") else "",
+            fmt("stripe_cross_deg", 2), fmt("stripe_ridge_deg", 2),
+            fmt("stripe_period_nm", 1), fmt("stripe_strength", 2)]
+
+
 def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="output",
         z_mode="real", backend="python", level=True,
-        profiles=True, profile_row=None, profile_col=None):
+        profiles=True, profile_row=None, profile_col=None,
+        profile_mode="hv", stripe_angle=None):
     """统一入口 (CLI/GUI 调用).
 
-    file: 单个高度图文件; folder: 批量处理文件夹内所有 .ibw
+    file: 单个高度图文件 (或一组文件的 list); folder: 批量处理文件夹内所有 .ibw
     z_mode: 3D 图 z 轴显示模式 — "real" (默认, z 与 XY 同比例, 不做纵向夸张) /
             "auto" (z 显示为 xy 平均尺度的 ~25%, 起伏扁平时看得清楚) / 数值放大系数
-    profiles: 是否额外输出"参考线剖面图" (左 3D 等比例 + 横/纵参考线虚线, 右 沿两条线的深度曲线);
+    profiles: 是否额外输出"参考线剖面图" (左 3D 等比例 + 参考线虚线, 右 沿线的深度曲线);
               profile_row/profile_col 指定参考线所在的像素行列 (默认取正中)
+    profile_mode: 参考线怎么画 — "hv" (默认, 横+纵两条: 各向同性面/纳米柱网格) /
+              "cross" (只一条, 方向由 2D FFT 定, 横跨条纹: LIPSS) / "auto" (周期性明显才用单条)
+    stripe_angle: 手动指定跨纹线方向 (度, 相对 +X), 不填则由 FFT 自动判
     backend: "python" (默认, 自研算法) / "gwyddion" (WSL Gwyddion 2.67 内核,
              真·Gwyddion 平面扣除+统计; level=True 时先平面扣除)
     返回 dict: {"results": [...], "csv": path, "figures": [...], "grid": path|None}
@@ -401,7 +541,7 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
         if not paths:
             raise FileNotFoundError(f"文件夹内未找到 .ibw/.tif 文件: {folder}")
     elif file:
-        paths = [file]
+        paths = list(file) if isinstance(file, (list, tuple)) else [file]
     else:
         raise ValueError("必须提供 file 或 folder")
     if not paths:
@@ -416,9 +556,9 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
             name = os.path.splitext(os.path.basename(p))[0]
             g = gwy_by_file.get(os.path.basename(p), {})
             z, px_h, py_h = load_heightmap(p, channel=channel)
-            if px is None and px_h is not None:
-                px, py = px_h, py_h or px_h
-            m_py = surface_metrics(z, px, py or px) if px else None
+            pxf = px if px is not None else px_h          # 每份文件各自的像素尺寸
+            pyf = py if py is not None else (py_h or pxf)
+            m_py = surface_metrics(z, pxf, pyf or pxf) if pxf else None
             results.append({
                 "file": name, "path": p, "backend": "gwyddion",
                 "level": bool(level),
@@ -429,18 +569,22 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
                 "Sproj_um2": m_py["Sproj_um2"] if m_py else None,
                 "Sdr_pct": m_py["Sdr_pct"] if m_py else None,
             })
-            if px:
+            if pxf:
                 fig_p = os.path.join(out, f"{name}_3D.png")
                 src_tag = "(Gwyddion level)" if level else "(Gwyddion raw)"
-                plot3d(z, px, py or px, fig_p, z_mode=z_mode,
+                plot3d(z, pxf, pyf or pxf, fig_p, z_mode=z_mode,
                        title=f"{name}  3D surface  {src_tag}")
                 figures.append(fig_p)
                 if profiles:
                     fig_pr = os.path.join(out, f"{name}_profile.png")
-                    plot_profiles(z, px, py or px, fig_pr, row=profile_row, col=profile_col,
-                                  title=name, z_mode=z_mode)
+                    _lines, _pinfo = profile_lines_for(z, pxf, pyf or pxf, profile_mode,
+                                                       stripe_angle=stripe_angle,
+                                                       row=profile_row, col=profile_col)
+                    plot_profiles(z, pxf, pyf or pxf, fig_pr, title=name, z_mode=z_mode,
+                                  lines=_lines)
                     figures.append(fig_pr)
-                grid_data.append((name, z, px, {
+                    results[-1].update(_pinfo)
+                grid_data.append((name, z, pxf, {
                     "Sa_nm": g.get("Sa_nm"), "Sq_nm": g.get("Sq_nm"),
                     "Sdr_pct": m_py["Sdr_pct"] if m_py else 0.0}))
             print(f"  {name}: Sa={g.get('Sa_nm')} nm, Sq={g.get('Sq_nm')} nm, "
@@ -449,7 +593,9 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
         with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
             wtr = csv.writer(f)
             wtr.writerow(["file", "backend", "level", "Sa_nm", "Sq_nm", "Sz_nm",
-                          "skew", "kurt", "S3d_um2", "Sproj_um2", "Sdr_pct"])
+                          "skew", "kurt", "S3d_um2", "Sproj_um2", "Sdr_pct",
+                          "profile_mode", "n_lines", "stripe_cross_deg", "stripe_ridge_deg",
+                          "stripe_period_nm", "stripe_strength"])
             for r in results:
                 wtr.writerow([r["file"], r["backend"], r["level"],
                               f"{r['Sa_nm']:.4f}" if r["Sa_nm"] is not None else "",
@@ -459,7 +605,8 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
                               f"{r['kurt']:.4f}" if r.get("kurt") is not None else "",
                               f"{r['S3d_um2']:.4f}" if r["S3d_um2"] is not None else "",
                               f"{r['Sproj_um2']:.4f}" if r["Sproj_um2"] is not None else "",
-                              f"{r['Sdr_pct']:.4f}" if r["Sdr_pct"] is not None else ""])
+                              f"{r['Sdr_pct']:.4f}" if r["Sdr_pct"] is not None else ""]
+                             + _profile_cells(r))
         grid_path = None
         if len(grid_data) > 1:
             grid_path = os.path.join(out, "all_3D_grid.png")
@@ -472,32 +619,38 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
     for p in paths:
         name = os.path.splitext(os.path.basename(p))[0]
         z, px_h, py_h = load_heightmap(p, channel=channel)
-        if px is None and px_h is not None:
-            px, py = px_h, py_h or px_h
-        if px is None:
+        pxf = px if px is not None else px_h          # 每份文件各自的像素尺寸
+        pyf = py if py is not None else (py_h or pxf)
+        if pxf is None:
             raise ValueError(f"像素尺寸未知: {name} — 请用 --px/px 指定 (nm)")
-        m = surface_metrics(z, px, py or px)
+        m = surface_metrics(z, pxf, pyf or pxf)
         results.append({"file": name, "path": p, **m})
         fig_p = os.path.join(out, f"{name}_3D.png")
-        plot3d(z, px, py or px, fig_p, title=f"{name}  3D surface", z_mode=z_mode)
+        plot3d(z, pxf, pyf or pxf, fig_p, title=f"{name}  3D surface", z_mode=z_mode)
         figures.append(fig_p)
         if profiles:
             fig_pr = os.path.join(out, f"{name}_profile.png")
-            plot_profiles(z, px, py or px, fig_pr, row=profile_row, col=profile_col,
-                          title=name, z_mode=z_mode)
+            _lines, _pinfo = profile_lines_for(z, pxf, pyf or pxf, profile_mode,
+                                               stripe_angle=stripe_angle,
+                                               row=profile_row, col=profile_col)
+            plot_profiles(z, pxf, pyf or pxf, fig_pr, title=name, z_mode=z_mode, lines=_lines)
             figures.append(fig_pr)
-        grid_data.append((name, z, px, m))
+            results[-1].update(_pinfo)
+        grid_data.append((name, z, pxf, m))
         print(f"  {name}: Sa={m['Sa_nm']:.2f} nm, Sq={m['Sq_nm']:.2f} nm, "
               f"Sz={m['Sz_nm']:.1f} nm, Sdr={m['Sdr_pct']:.3f}%")
 
     csv_path = os.path.join(out, "surface_metrics_summary.csv")
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
         wtr = csv.writer(f)
-        wtr.writerow(["file", "Sa_nm", "Sq_nm", "Sz_nm", "S3d_um2", "Sproj_um2", "Sdr_pct"])
+        wtr.writerow(["file", "Sa_nm", "Sq_nm", "Sz_nm", "S3d_um2", "Sproj_um2", "Sdr_pct",
+                      "profile_mode", "n_lines", "stripe_cross_deg", "stripe_ridge_deg",
+                      "stripe_period_nm", "stripe_strength"])
         for r in results:
             wtr.writerow([r["file"], f"{r['Sa_nm']:.4f}", f"{r['Sq_nm']:.4f}",
                           f"{r['Sz_nm']:.4f}", f"{r['S3d_um2']:.4f}",
-                          f"{r['Sproj_um2']:.4f}", f"{r['Sdr_pct']:.4f}"])
+                          f"{r['Sproj_um2']:.4f}", f"{r['Sdr_pct']:.4f}"]
+                         + _profile_cells(r))
 
     grid_path = None
     if len(grid_data) > 1:
