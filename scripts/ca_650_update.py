@@ -32,7 +32,7 @@ XLSX = os.path.join(BASE, "650nm.xlsx")
 
 GROUPS = ["area1", "area1-R90", "area2", "control"]
 LABEL = {"area1": "area1", "area1-R90": "area1 (rot 90°)", "area2": "area2", "control": "control"}
-COLOR = {"area1": "#1f77b4", "area1-R90": "#ff7f0e", "area2": "#9467bd", "control": "#7f7f7f"}
+COLOR = {"area1": "#1565C0", "area1-R90": "#EF6C00", "area2": "#6A1B9A", "control": "#546E7A"}
 MARK = {"area1": "o", "area1-R90": "s", "area2": "^", "control": "D"}
 
 # Day 2 (12/9, 23 °C, 44% RH) — left/right readings per repeat
@@ -160,6 +160,10 @@ def main():
             es = [values[g].get(d, (None, 0))[1] for d in DAYS]
             ax.errorbar(xs, ys, yerr=es, color=COLOR[g], marker=MARK[g], ls="-", lw=1.6,
                         ms=6, capsize=4, label=LABEL[g])
+            for xx, yy in zip(xs, ys):
+                if yy is not None:
+                    ax.annotate(f"{yy:.1f}", (xx, yy), xytext=(6, 7),
+                                textcoords="offset points", fontsize=8, color=COLOR[g])
         ax.set_xticks(list(xs))
         ax.set_xticklabels([f"{d} ({COND[i][0]})" for i, d in enumerate(DAYS)])
         for i, d in enumerate(DAYS):
