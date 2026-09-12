@@ -137,15 +137,12 @@ def _setup_cjk_font():
     _CJK_READY = True
 
 
-def plot3d(z, px, py, out, title=None, z_mode="auto"):
-    """单文件 3D 表面图. z: nm; px/py: nm/px.
+def plot3d(z, px, py, out, title=None, z_mode="real"):
+    """Single-file 3D surface map. z: nm; px/py: nm per pixel.
 
-    z_mode 高度轴显示模式:
-      "auto"  (默认) — XY 严格按物理比例 (px:py), z 显示为 xy 平均尺度的 ~25%,
-                       形貌起伏清晰可读 (学术图惯例, z 轻微夸大但标注真实 nm 刻度)
-      "real"  — z 与 XY 完全同比例 (1 nm = 0.001 µm), 实际结构全等比,
-                起伏可能非常扁 (真实物理比例)
-      数值    — 手动 z 放大系数 k (k=1.0 即 real)
+    z_mode: "real" (default) = z axis on the same physical scale as XY, no vertical
+            exaggeration; "auto" = z shown at ~25% of the XY extent (keeps shallow relief
+            readable); a number = manual z magnification factor.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -172,13 +169,23 @@ def plot3d(z, px, py, out, title=None, z_mode="auto"):
                            antialiased=True, rstride=1, cstride=1)
     # 横纵轴 (X/Y) 严格按物理尺寸比例 + z 按显示模式; z 数据轴保持真实 nm
     ax.set_box_aspect((xr, yr, zr / 1000.0 * k))
+    # z 轴刻度: 等比/微夸张时 z 方向在屏幕上很扁, matplotlib 默认那串数字会糊成一团
+    ticks_hidden = False
+    ratio = (zr / 1000.0 * k) / max((xr + yr) / 2.0, 1e-9)
+    if ratio < 0.03:
+        ax.set_zticks([])          # 高度数值由 colorbar 承载
+        ticks_hidden = True
+    elif ratio < 0.5:
+        ax.set_zticks(np.linspace(float(z.min()), float(z.max()), 4))
     ax.set_xlabel("X (µm)")
     ax.set_ylabel("Y (µm)")
     ax.set_zlabel("Height (nm)")
     t = title or (f"Sa={m['Sa_nm']:.2f} nm, Sq={m['Sq_nm']:.2f} nm, "
                   f"Sz={m['Sz_nm']:.1f} nm, Sdr={m['Sdr_pct']:.2f}%")
-    if z_mode != "auto":
-        t += f"  [z ×{k:.2g}]"
+    t += ("  [z and XY at the same scale]" if abs(k - 1.0) < 1e-9
+          else f"  [z x{k:.2g}]")
+    if ticks_hidden:
+        t += "  ·  height scale: see colour bar"
     ax.set_title(t, fontsize=10)
     fig.colorbar(surf, shrink=0.6, label="Height (nm)")
     fig.tight_layout()
@@ -236,10 +243,20 @@ def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real")
     ax.text(X[h - 1, col], Y[h - 1, col], vz[-1], f" V-line (along Y)\n X={X[0, col]:.2f} µm",
             color=V_COL, fontsize=7.5, zorder=10)
     ax.set_box_aspect((xr, yr, zr / 1000.0 * k))
+    # z 轴刻度: 等比/微夸张时 z 方向在屏幕上很扁, matplotlib 默认那串数字会糊成一团
+    ticks_hidden = False
+    ratio = (zr / 1000.0 * k) / max((xr + yr) / 2.0, 1e-9)
+    if ratio < 0.03:
+        ax.set_zticks([])          # 高度数值由 colorbar 承载
+        ticks_hidden = True
+    elif ratio < 0.5:
+        ax.set_zticks(np.linspace(float(z.min()), float(z.max()), 4))
     ax.set_xlabel("X (µm)")
     ax.set_ylabel("Y (µm)")
     ax.set_zlabel("Height (nm)")
     scale_tag = "z and XY at the same scale" if abs(k - 1.0) < 1e-9 else f"z x{k:.3g}"
+    if ticks_hidden:
+        scale_tag += "  ·  height scale: see colour bar"
     ax.set_title(f"{title or '3D surface'}   [{scale_tag}]", fontsize=10)
     ax.view_init(elev=42, azim=-60)
     fig.colorbar(surf, ax=ax, shrink=0.6, pad=0.08, label="Height (nm)")
