@@ -23,7 +23,13 @@ import numpy as np
 
 
 def load_heightmap(path, channel=None):
-    """读取高度图. 返回 (z, px_hint, py_hint); px_hint=None 表示未知需手动指定"""
+    """读取高度图. 返回 (z, px_hint, py_hint); px_hint=None 表示未知需手动指定
+
+    channel 可以是索引, 也可以是名字 ("height" / "zsr") —— ZSR = ZSensor Retrace,
+    表面粗糙度分析要求用这个通道 (Height Retrace 是被软件平滑过的)。
+    """
+    if isinstance(channel, str):
+        channel = resolve_channel(path, channel)
     ext = os.path.splitext(path)[1].lower()
     if ext in (".tif", ".tiff", ".png"):
         import tifffile
@@ -209,12 +215,16 @@ def _norm_dir(deg):
     return ((float(deg) + 90.0) % 180.0) - 90.0
 
 
-def stripe_orientation(z, px, py):
+def stripe_orientation(z, px, py, band_nm=None):
     """Dominant stripe (LIPSS-like) direction from the 2D FFT of the height map.
 
     A corrugated surface shows its periodicity along the direction PERPENDICULAR to the ridges,
     so the FFT peak direction is exactly the direction a profile line has to run to cross the
-    ripples. Returns:
+    ripples. ``band_nm=(lo, hi)`` keeps only peaks whose period is inside that window — needed
+    for ZS(ZSR) data, where large-scale scan artefacts (µm-scale stripes) can outrank the real
+    LIPSS peak; for a 515 nm laser the physical window is (0.5λ, 1.5λ) = (258, 772) nm.
+
+    Returns:
 
         {"cross_deg":  ruler direction that crosses the ripples   (deg, CCW from +X, mod 180)
          "ridge_deg":  ridge (stripe) direction = cross_deg + 90
@@ -232,9 +242,18 @@ def stripe_orientation(z, px, py):
     cy, cx = h // 2, w // 2
     mag[max(0, cy - 2):cy + 3, max(0, cx - 2):cx + 3] = 0            # kill DC + neighbours
     mag[h // 2:, :] = 0                                              # one half plane (symmetric)
+    med_ref = float(np.median(mag[mag > 0])) if (mag > 0).any() else 1.0   # 峰强基准取未掩蔽前的
+    if band_nm:                                    # 只在物理上可能的周期带里找峰
+        lo, hi = float(band_nm[0]), float(band_nm[1])
+        fy_all = (np.arange(h)[:, None] - cy) / (h * py)
+        fx_all = (np.arange(w)[None, :] - cx) / (w * px)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            period = 1.0 / np.hypot(fx_all, fy_all)
+        mag = np.where((period >= lo) & (period <= hi), mag, 0.0)
+        if not mag.any():
+            raise ValueError(f"带宽 {band_nm} nm 内没有可用的 FFT 峰")
     py2, px2 = np.unravel_index(int(np.argmax(mag)), mag.shape)
-    alive = mag[mag > 0]
-    med = float(np.median(alive)) if alive.size else 1.0
+    med = med_ref                                          # 峰强 = 峰 / 全谱中位 (可与无带结果比)
     fx = (px2 - cx) / (w * px)          # cycles/nm along X
     fy = (py2 - cy) / (h * py)          # cycles/nm along Y
     f = float(np.hypot(fx, fy))
@@ -381,7 +400,8 @@ def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real",
     return out
 
 
-def profile_lines_for(z, px, py, mode="hv", stripe_angle=None, row=None, col=None):
+def profile_lines_for(z, px, py, mode="hv", stripe_angle=None, row=None, col=None,
+                      stripe_band=None):
     """Decide which ruler(s) a figure gets, and describe them.
 
     mode: "hv"    = H-line + V-line (isotropic surfaces, nanopillar grids)
@@ -389,12 +409,14 @@ def profile_lines_for(z, px, py, mode="hv", stripe_angle=None, row=None, col=Non
                     or from ``stripe_angle`` when given
           "auto"  = "cross" when the surface really is corrugated (FFT peak stands out),
                     otherwise "hv"
+    stripe_band: (lo, hi) nm — 只在该周期带内找条纹峰 (ZS/ZSR 数据必给, 否则会被 µm 级扫描伪影带偏)
     Returns (lines, info) — info carries the detected direction/period for the CSV/report.
     """
     info = {"profile_mode": mode, "stripe_cross_deg": None, "stripe_ridge_deg": None,
-            "stripe_period_nm": None, "stripe_strength": None, "line_count": 0}
+            "stripe_period_nm": None, "stripe_strength": None, "line_count": 0,
+            "stripe_band_nm": list(stripe_band) if isinstance(stripe_band, (tuple, list)) else None}
     if mode in ("cross", "auto"):
-        st = stripe_orientation(z, px, py)
+        st = stripe_orientation(z, px, py, band_nm=stripe_band)
         info.update({"stripe_cross_deg": st["cross_deg"], "stripe_ridge_deg": st["ridge_deg"],
                      "stripe_period_nm": st["period_nm"], "stripe_strength": st["strength"]})
         use_cross = True if mode == "cross" else st["strength"] >= 8.0
@@ -513,10 +535,84 @@ def _profile_cells(r):
             fmt("stripe_period_nm", 1), fmt("stripe_strength", 2)]
 
 
+def channel_names(path):
+    """通道名列表 (labels 优先, 空则退回 wave_note 的 ChannelNDataType)."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext != ".ibw":
+        return []
+    from igor import binarywave
+    w = binarywave.load(path)["wave"]
+    labels = w.get("labels") or []
+    flat = [l for grp in labels for l in (grp if isinstance(grp, list) else [grp])]
+    names = [(l.decode("utf-8", "ignore") if isinstance(l, bytes) else str(l)).strip()
+             for l in flat if l]
+    if not any(names):
+        note = w.get("note") or b""
+        if isinstance(note, bytes):
+            note = note.decode("utf-8", "ignore")
+        names = [d for _i, d in re.findall(r"Channel(\d+)DataType:\s*([A-Za-z]+)", note)]
+    return names
+
+
+def resolve_channel(path, want):
+    """把通道名/别名换成索引. want: "height" / "zsr"/"zsensor" / 索引(int 直接返回).
+
+    ZSR = ZSensor Retrace (压电传感器原始反馈, 未滤波未展平) —— 表面粗糙度分析要求用这个通道,
+    而不是软件处理过的 Height Retrace (后者已被平滑, 起伏会被低估)。labels 常为空, 所以
+    channel_names() 会退回 wave_note 的 ChannelNDataType 表。
+    """
+    if want is None or isinstance(want, int):
+        return want
+    key = str(want).strip().lower()
+    alias = {"zsr": "zsensor", "zsensor": "zsensor", "zs": "zsensor",
+             "zsensorretrace": "zsensor", "height": "height",
+             "heightretrace": "height"}
+    key = alias.get(key, key)
+    names = [n.lower() for n in channel_names(path)]
+    for i, n in enumerate(names):
+        if key in n:
+            return i
+    raise ValueError(f"{os.path.basename(path)}: 找不到通道 {want!r} (实际通道: {names})")
+
+
+def plane_subtract(z):
+    """最小二乘拟合 z = a·x + b·y + c 并减去 —— 未展平的 ZS 数据必需 (只减均值不够)."""
+    h, w = z.shape
+    yy, xx = np.mgrid[0:h, 0:w]
+    A = np.column_stack([xx.ravel() / max(w - 1, 1), yy.ravel() / max(h - 1, 1), np.ones(h * w)])
+    coef, *_ = np.linalg.lstsq(A, z.ravel(), rcond=None)
+    return z - (A @ coef).reshape(h, w)
+
+
+def despike_z(z, k=5.0, iters=3, size=3):
+    """5σ 中值滤波去单点/小面积尖峰 (探针粘附/灰尘). 返回 (去尖峰后的 z, 被替换像素数).
+
+    只治单点尖峰: 大块凸起 (数百像素宽的真实颗粒/夹杂) 识别不了, 会留在数据里 ——
+    那种要靠人工 QC 判断是否剔除, 别指望这个滤镜。
+    """
+    from scipy import ndimage
+    out = np.array(z, dtype=float)
+    replaced = 0
+    for _ in range(int(iters)):
+        med = ndimage.median_filter(out, size=size, mode="nearest")
+        resid = out - med
+        s = float(resid.std())
+        if s <= 0:
+            break
+        mask = np.abs(resid) > k * s
+        n = int(mask.sum())
+        if not n:
+            break
+        out[mask] = med[mask]
+        replaced += n
+    return out, replaced
+
+
 def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="output",
         z_mode="real", backend="python", level=True,
         profiles=True, profile_row=None, profile_col=None,
-        profile_mode="hv", stripe_angle=None):
+        profile_mode="hv", stripe_angle=None, stripe_band=None,
+        plane=False, despike=False):
     """统一入口 (CLI/GUI 调用).
 
     file: 单个高度图文件 (或一组文件的 list); folder: 批量处理文件夹内所有 .ibw
@@ -527,6 +623,10 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
     profile_mode: 参考线怎么画 — "hv" (默认, 横+纵两条: 各向同性面/纳米柱网格) /
               "cross" (只一条, 方向由 2D FFT 定, 横跨条纹: LIPSS) / "auto" (周期性明显才用单条)
     stripe_angle: 手动指定跨纹线方向 (度, 相对 +X), 不填则由 FFT 自动判
+    stripe_band: (lo, hi) nm — 条纹周期搜索带 (ZS/ZSR 通道 + LIPSS 时给 (0.5λ, 1.5λ))
+    channel: 通道索引, 或名字 — "height" / "zsr"(= ZSensor Retrace). AFM 表面粗糙度分析
+             要求用 ZSR (传感器原始信号), 不要用被软件平滑过的 Height Retrace
+    plane/despike: 出图用的 z 先做 2D 平面扣除 / 5σ 中值去尖峰 (ZS 未展平数据必需 plane)
     backend: "python" (默认, 自研算法) / "gwyddion" (WSL Gwyddion 2.67 内核,
              真·Gwyddion 平面扣除+统计; level=True 时先平面扣除)
     返回 dict: {"results": [...], "csv": path, "figures": [...], "grid": path|None}
@@ -547,15 +647,27 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
     if not paths:
         raise FileNotFoundError("未找到输入文件")
 
+    ch_int = channel
+    if isinstance(channel, str):
+        resolved = {resolve_channel(p, channel) for p in paths}
+        if len(resolved) != 1:
+            raise ValueError(f"通道 {channel!r} 在不同文件里的索引不一致: {sorted(resolved)}")
+        ch_int = resolved.pop()
+        print(f"  通道: {channel} → 索引 {ch_int} ({channel_names(paths[0])})")
+
     results, figures, grid_data = [], [], []
     if backend == "gwyddion":
         # ---- Gwyddion 内核后端: 数值来自真·Gwyddion (level + 统计) ----
-        gwy_rows = gwy_batch_wsl(paths, level=level, channel=channel)
+        gwy_rows = gwy_batch_wsl(paths, level=level, channel=ch_int)
         gwy_by_file = {r["file"]: r for r in gwy_rows}
         for p in paths:
             name = os.path.splitext(os.path.basename(p))[0]
             g = gwy_by_file.get(os.path.basename(p), {})
-            z, px_h, py_h = load_heightmap(p, channel=channel)
+            z, px_h, py_h = load_heightmap(p, channel=ch_int)
+            if plane:
+                z = plane_subtract(z)
+            if despike:
+                z, _n_spk = despike_z(z)
             pxf = px if px is not None else px_h          # 每份文件各自的像素尺寸
             pyf = py if py is not None else (py_h or pxf)
             m_py = surface_metrics(z, pxf, pyf or pxf) if pxf else None
@@ -579,7 +691,8 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
                     fig_pr = os.path.join(out, f"{name}_profile.png")
                     _lines, _pinfo = profile_lines_for(z, pxf, pyf or pxf, profile_mode,
                                                        stripe_angle=stripe_angle,
-                                                       row=profile_row, col=profile_col)
+                                                       row=profile_row, col=profile_col,
+                                                       stripe_band=stripe_band)
                     plot_profiles(z, pxf, pyf or pxf, fig_pr, title=name, z_mode=z_mode,
                                   lines=_lines)
                     figures.append(fig_pr)
@@ -618,7 +731,11 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
     # ---- Python 自研后端 (原逻辑) ----
     for p in paths:
         name = os.path.splitext(os.path.basename(p))[0]
-        z, px_h, py_h = load_heightmap(p, channel=channel)
+        z, px_h, py_h = load_heightmap(p, channel=ch_int)
+        if plane:
+            z = plane_subtract(z)
+        if despike:
+            z, _n_spk = despike_z(z)
         pxf = px if px is not None else px_h          # 每份文件各自的像素尺寸
         pyf = py if py is not None else (py_h or pxf)
         if pxf is None:
@@ -632,7 +749,8 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
             fig_pr = os.path.join(out, f"{name}_profile.png")
             _lines, _pinfo = profile_lines_for(z, pxf, pyf or pxf, profile_mode,
                                                stripe_angle=stripe_angle,
-                                               row=profile_row, col=profile_col)
+                                               row=profile_row, col=profile_col,
+                                               stripe_band=stripe_band)
             plot_profiles(z, pxf, pyf or pxf, fig_pr, title=name, z_mode=z_mode, lines=_lines)
             figures.append(fig_pr)
             results[-1].update(_pinfo)

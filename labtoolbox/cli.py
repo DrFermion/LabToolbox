@@ -138,7 +138,8 @@ def build_parser():
     p = sub.add_parser("surfmetrics", help=COMMANDS["surfmetrics"][1])
     p.add_argument("--file", default=None, help="高度图文件 (.ibw/.tif/.txt/.xyz/.csv)")
     p.add_argument("--folder", default=None, help="批量: 文件夹内所有 .ibw (如 AFM 原始数据目录)")
-    p.add_argument("--channel", type=int, default=None, help=".ibw 通道索引 (默认自动选 Height)")
+    p.add_argument("--channel", type=_channel_arg, default=None,
+                   help=".ibw 通道: 索引 或名字 (height / zsr = ZSensor Retrace; 表面粗糙度分析应用 zsr)")
     p.add_argument("--px", type=float, default=None, help="像素尺寸 X (nm; .ibw 自动读取, 其他格式建议给)")
     p.add_argument("--py", type=float, default=None, help="像素尺寸 Y (nm, 默认=px)")
     p.add_argument("--output", default="output", help="输出目录")
