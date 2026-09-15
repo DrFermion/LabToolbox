@@ -167,6 +167,15 @@ def _apply_z_ticks(ax, z, xr, yr, zr, k):
     return False
 
 
+def _cbar(fig, surf, ax=None):
+    """统一的 colorbar 样式: 刻度字号小一点、标签留白大一点 —— 否则 "Height (nm)" 会贴住刻度数字."""
+    kw = {"ax": ax} if ax is not None else {}
+    cb = fig.colorbar(surf, shrink=0.62, pad=0.06 if ax is None else 0.10, aspect=26, **kw)
+    cb.set_label("Height (nm)", labelpad=12, fontsize=9.5)
+    cb.ax.tick_params(labelsize=8.5, pad=2)
+    return cb
+
+
 def plot3d(z, px, py, out, title=None, z_mode="real"):
     """Single-file 3D surface map. z: nm; px/py: nm per pixel.
 
@@ -200,9 +209,11 @@ def plot3d(z, px, py, out, title=None, z_mode="real"):
     # 横纵轴 (X/Y) 严格按物理尺寸比例 + z 按显示模式; z 数据轴保持真实 nm
     ax.set_box_aspect((xr, yr, zr / 1000.0 * k))
     ticks_hidden = _apply_z_ticks(ax, z, xr, yr, zr, k)
-    ax.set_xlabel("X (µm)")
-    ax.set_ylabel("Y (µm)")
-    ax.set_zlabel("Height (nm)")
+    ax.set_xlabel("X (µm)", labelpad=13)
+    ax.set_ylabel("Y (µm)", labelpad=13)
+    ax.tick_params(labelsize=8.5, pad=1.5)
+    # z 刻度隐藏时连 z 标签一起去掉: 否则它和 colorbar 的刻度数字、标签挤在同一片区域 (实测重叠)
+    ax.set_zlabel("" if ticks_hidden else "Height (nm)", labelpad=8)
     t = title or (f"Sa={m['Sa_nm']:.2f} nm, Sq={m['Sq_nm']:.2f} nm, "
                   f"Sz={m['Sz_nm']:.1f} nm, Sdr={m['Sdr_pct']:.2f}%")
     t += ("  [z and XY at the same scale]" if abs(k - 1.0) < 1e-9
@@ -210,8 +221,8 @@ def plot3d(z, px, py, out, title=None, z_mode="real"):
     if ticks_hidden:
         t += "  ·  height scale: see colour bar"
     ax.set_title(t, fontsize=10)
-    fig.colorbar(surf, shrink=0.6, label="Height (nm)")
-    fig.tight_layout()
+    _cbar(fig, surf)
+    fig.tight_layout(pad=1.4)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     fig.savefig(out, dpi=200)
     plt.close(fig)
@@ -374,34 +385,40 @@ def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real",
         col_ = PALETTE[n % len(PALETTE)]
         ax.plot(xs, ys, hgt + lift, color=col_, ls="--", lw=1.7)
         ax.text(xs[0], ys[0], hgt[0] + lift, " " + spec.get("label", f"line {n + 1}"),
-                color=col_, fontsize=7.5, zorder=10)
+                color=col_, fontsize=7.5, zorder=10,
+                bbox=dict(boxstyle="round,pad=0.18", facecolor="white", alpha=0.55,
+                          edgecolor="none"))
         profiles.append((col_, spec.get("label", f"line {n + 1}").replace("\n", "   "), dist, hgt))
     ax.set_box_aspect((xr, yr, zr / 1000.0 * k))
     ticks_hidden = _apply_z_ticks(ax, z, xr, yr, zr, k)
-    ax.set_xlabel("X (µm)")
-    ax.set_ylabel("Y (µm)")
-    ax.set_zlabel("Height (nm)")
+    ax.set_xlabel("X (µm)", labelpad=10)
+    ax.set_ylabel("Y (µm)", labelpad=10)
+    ax.set_zlabel("" if ticks_hidden else "Height (nm)", labelpad=8)
     scale_tag = "z and XY at the same scale" if abs(k - 1.0) < 1e-9 else f"z x{k:.3g}"
     if ticks_hidden:
         scale_tag += "  ·  height scale: see colour bar"
     ax.set_title(f"{title or '3D surface'}   [{scale_tag}]", fontsize=10)
     ax.view_init(elev=42, azim=-60)
-    fig.colorbar(surf, ax=ax, shrink=0.6, pad=0.08, label="Height (nm)")
+    _cbar(fig, surf, ax=ax)
 
     ax2 = fig.add_subplot(1, 2, 2)
     for col_, label, dist, hgt in profiles:
         ax2.plot(dist, hgt, color=col_, lw=1.3, label=label)
         ax2.axhline(float(hgt.mean()), color=col_, lw=0.6, ls=":", alpha=0.55)
-    ax2.set_xlabel("Distance (µm)")
-    ax2.set_ylabel("Height (nm)")
-    pv = "  |  ".join(f"{lbl.split('   ')[0]} P-V {np.ptp(hgt):.1f} nm"
-                      for _c, lbl, _d, hgt in profiles)
-    ax2.set_title(f"Depth profiles along the reference line(s)    Sa = {m['Sa_nm']:.2f} nm    {pv}",
-                  fontsize=10)
+    ax2.set_xlabel("Distance (µm)", labelpad=8)
+    ax2.set_ylabel("Height (nm)", labelpad=8)
+    pv = "   |   ".join(f"{lbl.split('   ')[0]} P-V {np.ptp(hgt):.1f} nm"
+                        for _c, lbl, _d, hgt in profiles)
+    # 标题分两行 + 图例移到绘图区上方: 长标题不再压到左边 colorbar, 图例也不盖曲线 (两处实测重叠)
+    ax2.set_title(f"Depth profile   |   Sa = {m['Sa_nm']:.2f} nm   |   {pv}", fontsize=10)
     ax2.grid(alpha=0.25)
-    ax2.legend(fontsize=9, loc="best")
+    # 图例放到坐标区下方: 上方留给标题与跑分, 曲线不被遮, 图例也不与标题打架 (三处都实测过)
+    ax2.legend(fontsize=8.5, loc="upper center", bbox_to_anchor=(0.5, -0.14),
+               ncol=min(2, max(1, len(profiles))), frameon=False, handlelength=1.6,
+               columnspacing=1.2, borderaxespad=0.0)
 
-    fig.tight_layout()
+    fig.tight_layout(pad=1.4)
+    fig.subplots_adjust(wspace=0.30, bottom=0.24)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     fig.savefig(out, dpi=200)
     plt.close(fig)
@@ -471,10 +488,13 @@ def plot_grid(files_data, out, title=None, z_mode="auto"):
         surf = ax.plot_surface(X, Y, z, cmap="viridis", linewidth=0,
                                antialiased=True, rstride=1, cstride=1)
         ax.set_box_aspect((xr, yr, zr / 1000.0 * k))
-        ax.set_title(f"{name}\nSa={m['Sa_nm']:.2f} nm | Sq={m['Sq_nm']:.2f} nm | "
-                     f"Sdr={m['Sdr_pct']:.2f}%", fontsize=8)
-        ax.set_xlabel("µm"); ax.set_ylabel("µm"); ax.set_zlabel("nm")
-        ax.tick_params(labelsize=6)
+        hidden = _apply_z_ticks(ax, z, xr, yr, zr, k)      # 网格每格也要收 z 刻度, 否则一排数字互叠
+        ax.set_title("{}\\nSa={:.2f} nm | Sq={:.2f} nm | Sdr={:.2f}%".format(
+            name, m['Sa_nm'], m['Sq_nm'], m['Sdr_pct']), fontsize=8, linespacing=1.35)
+        ax.set_xlabel("µm", labelpad=1)
+        ax.set_ylabel("µm", labelpad=1)
+        ax.set_zlabel("" if hidden else "nm", labelpad=1)
+        ax.tick_params(labelsize=6, pad=0.5)
     if title:
         fig.suptitle(title, fontsize=13)
     fig.tight_layout()

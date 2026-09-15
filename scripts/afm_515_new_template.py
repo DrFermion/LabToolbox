@@ -39,7 +39,8 @@ def main():
         print(f"\n########## {group} ({sub}, {pat}) — {len(files)} 个文件, 参考线模式={mode} ##########")
         out_dir = os.path.join(OUT, group)
         res = run(file=files, output_dir=out_dir, backend="gwyddion", level=True,
-                  z_mode="real", profiles=True, profile_mode=mode)
+                  z_mode="real", profiles=True, profile_mode=mode,
+                  channel="height")   # 显式旧口径: 这版是 Height 参考集, 与 ZSR 版对照
         with open(res["csv"], encoding="utf-8-sig") as f:
             rows = list(csv.DictReader(f))
         for r in rows:
