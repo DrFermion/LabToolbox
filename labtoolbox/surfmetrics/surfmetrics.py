@@ -497,12 +497,14 @@ def profile_lines_for(z, px, py, mode="hv", stripe_angle=None, row=None, col=Non
                      "stripe_period_nm": st["period_nm"], "stripe_strength": st["strength"]})
         use_cross = True if mode == "cross" else st["strength"] >= 8.0
         if use_cross:
-            deg = float(stripe_angle) if stripe_angle is not None else st["cross_deg"]
+            # 主人 2026-09-15: LIPSS 参考线角度**固定 90°** (沿 Y 走 = 正跨条纹), 不再用 FFT 角度;
+            # 图上也不再显示 θ (标注只留 "Ruler across the ripples")。
+            # FFT 量到的角度/周期仍写进 CSV (stripe_cross_deg / stripe_period_nm) 供追溯;
+            # 显式传 stripe_angle 时仍以它为准 (probe 脚本的逃生口)
+            deg = float(stripe_angle) if stripe_angle is not None else 90.0
             info["profile_mode"] = "cross"
             info["line_count"] = 1
-            # 图上只标方向角, **不标 period** (主人 2026-09-15: 参考线旁边那个 "(period ≈ N nm)"
-            # 去掉) —— 周期仍在 CSV/合并表里 (stripe_period_nm 列), 图上不重复。
-            lbl = f"Ruler across the ripples   θ = {_norm_dir(deg):+.1f}°"
+            lbl = "Ruler across the ripples"
             return [{"kind": "angle", "deg": deg, "label": lbl}], info
         info["profile_mode"] = "hv"
     r = z.shape[0] // 2 if row is None else max(0, min(z.shape[0] - 1, int(row)))

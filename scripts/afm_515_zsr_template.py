@@ -108,7 +108,9 @@ def main():
          "3. **2D 平面扣除**：`z = a·x + b·y + c` 最小二乘拟合后减去（只减均值不够，ZS 带 ~µm 级偏置 + 扫描倾斜）；",
          "4. **去尖峰**：5σ 中值滤波（size=3，迭代 3 次）替换单点/小面积尖峰（探针粘附、灰尘）；**大块凸起去不掉**，靠人工 QC；",
          "5. **统计**：Gwyddion 内核 + level（真·平面扣除）出 ISO 25178 的 Sa/Sq/Sz/skew/kurt；",
-         "6. **参考线**：LIPSS = 一条横跨条纹的线（方向由 2D FFT 在 **258–772 nm**（=0.5λ–1.5λ）带内判 —— ZSR 里 µm 级扫描伪影比 LIPSS 峰还强，不设带会挑错方向）；Nanopillar / VirginSS = 横 + 纵两条。",
+         "6. **参考线**：LIPSS = 一条横跨条纹的线 —— **图上固定画 90°（沿 Y，正跨条纹），标注只写 \"Ruler across the ripples\"，不显示角度**；"
+         "方向数值由 2D FFT 在 **258–772 nm**（=0.5λ–1.5λ）带内判定并**只写进 CSV**（`stripe_cross_deg`/`stripe_ridge_deg`/`stripe_period_nm`/`stripe_strength`）"
+         "—— ZSR 里 µm 级扫描伪影比 LIPSS 峰还强，不设带会挑错方向；Nanopillar / VirginSS = 横 + 纵两条。",
          "",
          "## 逐文件结果（ZSR）", "",
          "| 组 | 文件 | Sa (nm) | Sq (nm) | Sz (nm) | Sdr (%) | 检测线 | 条纹周期 (nm) | 跨纹方向 (°) |",
