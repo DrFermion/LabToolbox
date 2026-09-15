@@ -372,11 +372,12 @@ def _sample_line(z, px, py, spec):
     return t - t[0], hgt.astype(float), xs, ys
 
 
-def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real", lines=None):
+def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real", lines=None,
+                  z_bar=None):
     """Reference-line profile figure (English only).
 
     Left  = 3D topography at true z/XY scale with the reference line(s) drawn on the surface and
-            labelled with their orientation and position.
+            labelled with their orientation and position; plus a z scale bar (0 → max).
     Right = depth profiles measured along those same lines, in matching colours.
 
     lines=None reproduces the classic two-line figure (H-line along X + V-line along Y, through
@@ -388,6 +389,9 @@ def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real",
 
     A line is the ruler: peak-to-valley amplitude and the periodicity of a surface are only
     measurable along a profile, while the 3D view shows the overall morphology.
+
+    z_bar: z 标线 (0 → 最高高度, 只标这两个数 —— 主人 2026-09-15 指定);
+           None=自动 (z 刻度被隐藏时才画) / True=总是画 / False=不画.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -440,6 +444,12 @@ def plot_profiles(z, px, py, out, row=None, col=None, title=None, z_mode="real",
         scale_tag += "  ·  height scale: see colour bar"
     ax.set_title(f"{title or '3D surface'}   [{scale_tag}]", fontsize=10)
     ax.view_init(elev=42, azim=-60)
+    # z 标线 (0 → 最高高度, 只标 0 与最大值) —— 必须放在 view_init **之后**:
+    # 标线位置按投影算"屏幕上最左的角", 视角没定就会按默认视角选角 → 换个视角标线跑到图外
+    if z_bar is None:
+        z_bar = bool(ticks_hidden)
+    if z_bar:
+        _z_scale_bar(ax, X, Y, z)
     _cbar(fig, surf, ax=ax)
 
     ax2 = fig.add_subplot(1, 2, 2)

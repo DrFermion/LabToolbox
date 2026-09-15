@@ -124,7 +124,12 @@ def main():
           "", "## 文件", "",
           "- `<组>/<文件名>_3D.png` — 3D 形貌（z 与 XY 等比，高度看 colorbar）",
           "- `<组>/<文件名>_profile.png` — 左 3D + 参考线；右 沿线的 Height(nm)–Distance(µm) 剖面",
-          "- `<组>/all_3D_grid.png`、`<组>/surface_metrics_summary.csv`", ""]
+          "- `<组>/all_3D_grid.png`、`<组>/surface_metrics_summary.csv`", "",
+          "## z 标线（2026-09-15 起）", "",
+          "3D 图与剖面图左侧 3D panel 都带一条**竖直 z 标线**：从高度 **0** 画到该面的**最高点**，",
+          "两端小横钩 + 端点数值（只标 0 与最大值）。等比视图下 z 轴刻度会被自动隐藏",
+          "（高度只剩 colorbar 可读，而 colorbar 是全域色标、读不出「这图最高点多高」），",
+          "这条尺子补的正是绝对高度参照。z 夸张模式（刻度可见）时不画，避免与刻度重复。", ""]
     open(os.path.join(OUT, "README.md"), "w", encoding="utf-8").write("\n".join(L))
 
     try:
