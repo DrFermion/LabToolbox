@@ -3,7 +3,10 @@
 表面形貌参数模块: AFM/SEM 高度图 → 3D 图 + ISO 25178 粗糙度 (Sa/Sq/Sz) + 表面积 (Sdr)
 
 支持格式:
-  - .ibw  (Bruker/Igor AFM 原始数据, 直读; 自动读 ScanSize 校准 + 自动选 Height 通道)
+  - .ibw  (Bruker/Igor AFM 原始数据, 直读; 自动读 ScanSize 校准 + 自动选 ZSR 通道)
+          通道优先级: ZSensor Retrace (ZSR, 传感器原始信号 — 表面粗糙度分析用这个)
+                      > Height Retrace (软件平滑过, 起伏被低估; 要旧口径用 channel="height")
+          ZSR 默认走 2D 平面扣除 + 5σ 去尖峰 (未展平数据必需)
   - .tif/.tiff (高度图)
   - .txt/.csv/.xyz (纯高度矩阵 或 x,y,z 三列)
 
@@ -49,10 +52,15 @@ def load_heightmap(path, channel=None):
         ch_sel = channel
         if data.ndim == 3:
             if ch_sel is None:
-                # 优先 Height 通道
-                for i, nm in enumerate(names):
-                    if "height" in nm.lower():
-                        ch_sel = i
+                # 通道优先级 (2026-09-15 导师定规): ZSensor Retrace (ZSR) > Height Retrace > 首个有数据
+                # ZSR 是压电传感器原始反馈 (未滤波未展平), 表面粗糙度分析必须用它; Height 被软件平滑过,
+                # 起伏会被系统性低估。要用旧口径: 显式给 channel="height" / --channel height。
+                for want in ("zsensor", "height"):
+                    for i, nm in enumerate(names):
+                        if want in nm.lower():
+                            ch_sel = i
+                            break
+                    if ch_sel is not None:
                         break
                 if ch_sel is None:
                     stds = [float(data[:, :, i].std()) for i in range(data.shape[2])]
@@ -612,7 +620,7 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
         z_mode="real", backend="python", level=True,
         profiles=True, profile_row=None, profile_col=None,
         profile_mode="hv", stripe_angle=None, stripe_band=None,
-        plane=False, despike=False):
+        plane=None, despike=None):
     """统一入口 (CLI/GUI 调用).
 
     file: 单个高度图文件 (或一组文件的 list); folder: 批量处理文件夹内所有 .ibw
@@ -626,7 +634,8 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
     stripe_band: (lo, hi) nm — 条纹周期搜索带 (ZS/ZSR 通道 + LIPSS 时给 (0.5λ, 1.5λ))
     channel: 通道索引, 或名字 — "height" / "zsr"(= ZSensor Retrace). AFM 表面粗糙度分析
              要求用 ZSR (传感器原始信号), 不要用被软件平滑过的 Height Retrace
-    plane/despike: 出图用的 z 先做 2D 平面扣除 / 5σ 中值去尖峰 (ZS 未展平数据必需 plane)
+    plane/despike: 出图用的 z 先做 2D 平面扣除 / 5σ 中值去尖峰。默认 None = 随通道自动:
+              选到 ZSR 就开 (未展平必需), 选到 Height 就关; 显式 True/False 可强制
     backend: "python" (默认, 自研算法) / "gwyddion" (WSL Gwyddion 2.67 内核,
              真·Gwyddion 平面扣除+统计; level=True 时先平面扣除)
     返回 dict: {"results": [...], "csv": path, "figures": [...], "grid": path|None}
@@ -647,6 +656,8 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
     if not paths:
         raise FileNotFoundError("未找到输入文件")
 
+    names0 = channel_names(paths[0]) if paths else []
+    zs_idx = next((i for i, n in enumerate(names0) if "zsensor" in n.lower()), None)
     ch_int = channel
     if isinstance(channel, str):
         resolved = {resolve_channel(p, channel) for p in paths}
@@ -654,6 +665,18 @@ def run(file=None, folder=None, channel=None, px=None, py=None, output_dir="outp
             raise ValueError(f"通道 {channel!r} 在不同文件里的索引不一致: {sorted(resolved)}")
         ch_int = resolved.pop()
         print(f"  通道: {channel} → 索引 {ch_int} ({channel_names(paths[0])})")
+
+    if ch_int is None and zs_idx is not None:
+        ch_int = zs_idx          # 自动 = ZSR, 显式传给 Gwyddion 内核 (否则它会自己去挑 Height)
+        print(f"  自动选通道 → ZSR 索引 {zs_idx} ({names0[zs_idx] if zs_idx < len(names0) else ''})")
+    # ZSR (未滤波未展平) 默认走 2D 平面扣除 + 去尖峰; 显式 True/False 覆盖
+    auto_zs = (ch_int == zs_idx) if ch_int is not None else (zs_idx is not None)
+    if plane is None:
+        plane = auto_zs
+    if despike is None:
+        despike = auto_zs
+    if auto_zs:
+        print(f"  ZSR 通道 (索引 {zs_idx}) → 平面扣除={plane} 去尖峰={despike}")
 
     results, figures, grid_data = [], [], []
     if backend == "gwyddion":

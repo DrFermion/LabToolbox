@@ -36,6 +36,8 @@ labtoolbox xdlvo --config data/xdlvo_inputs.csv
 labtoolbox livedead --file data/livedead.xlsx --group 5%F-DLC
 labtoolbox contact-angle --file data/contact_angles.csv
 labtoolbox surfmetrics --folder "AFM 数据目录" --output 结果目录   # 批量: .ibw 直读, 自动校准
+# 通道默认自动选 ZSR (ZSensor Retrace, 表面粗糙度分析要求); 旧口径用 --channel height
+# 参考线: --profile-mode cross (LIPSS 一条跨纹线) / hv (横纵两条) / auto; 条纹搜索带 --stripe-band 258 772
 labtoolbox surfmetrics --file sample.ibw                          # 单文件
 ```
 
