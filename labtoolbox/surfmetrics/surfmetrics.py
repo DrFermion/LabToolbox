@@ -498,11 +498,11 @@ def profile_lines_for(z, px, py, mode="hv", stripe_angle=None, row=None, col=Non
         use_cross = True if mode == "cross" else st["strength"] >= 8.0
         if use_cross:
             deg = float(stripe_angle) if stripe_angle is not None else st["cross_deg"]
-            period = st["period_nm"]
             info["profile_mode"] = "cross"
             info["line_count"] = 1
-            lbl = (f"Ruler across the ripples   θ = {_norm_dir(deg):+.1f}°"
-                   + (f"\n (period ≈ {period:.0f} nm)" if period and period == period else ""))
+            # 图上只标方向角, **不标 period** (主人 2026-09-15: 参考线旁边那个 "(period ≈ N nm)"
+            # 去掉) —— 周期仍在 CSV/合并表里 (stripe_period_nm 列), 图上不重复。
+            lbl = f"Ruler across the ripples   θ = {_norm_dir(deg):+.1f}°"
             return [{"kind": "angle", "deg": deg, "label": lbl}], info
         info["profile_mode"] = "hv"
     r = z.shape[0] // 2 if row is None else max(0, min(z.shape[0] - 1, int(row)))
