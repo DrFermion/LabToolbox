@@ -176,12 +176,47 @@ def _cbar(fig, surf, ax=None):
     return cb
 
 
-def plot3d(z, px, py, out, title=None, z_mode="real"):
+def _z_scale_bar(ax, X, Y, z, label=True):
+    """在 3D 图上画一条 z 标线 (尺子): 从高度 0 到最高点, 两端小钩 + 数值标注。
+
+    为什么需要: z 与 XY 等比时 z 轴刻度会被隐藏 (`_apply_z_ticks`), 高度只剩 colorbar 可读,
+    但 colorbar 给的是全域色标、不是"这图最高点多高"的绝对参照 —— 标线补的就是这把尺子。
+    位置取**屏幕上最左**的角: 不同视角 (azim) 下 mpl 画 z 轴的位置会变, 用投影算而不是写死。
+    画完把 zlim 复位, 保证标线不改变盒子的物理比例。
+    """
+    from mpl_toolkits.mplot3d import proj3d
+    zmin, zmax = float(z.min()), float(z.max())
+    z0, z1 = 0.0, zmax
+    if z1 <= z0:                     # 全负/退化高度: 退回 min→max, 否则画不出东西
+        z0, z1 = zmin, zmax
+    x0, x1 = float(X.min()), float(X.max())
+    y0, y1 = float(Y.min()), float(Y.max())
+    M = ax.get_proj()
+    corner, best = (x0, y0), float("inf")
+    for cx, cy in ((x0, y0), (x0, y1), (x1, y0), (x1, y1)):
+        sx, _sy, _sz = proj3d.proj_transform(cx, cy, z1, M)
+        if sx < best:
+            best, corner = sx, (cx, cy)
+    cx, cy = corner
+    tick = 0.05 * (x1 - x0 + 1e-9)
+    ax.plot([cx, cx], [cy, cy], [z0, z1], color="k", lw=1.8, zorder=20, solid_capstyle="butt")
+    for zz in (z0, z1):
+        ax.plot([cx - tick, cx + tick], [cy, cy], [zz, zz], color="k", lw=1.3, zorder=20)
+    if label:
+        ax.text(cx - tick * 1.7, cy, z0, "0", fontsize=8, ha="right", va="center", zorder=21)
+        ax.text(cx - tick * 1.7, cy, z1, f"{z1:.0f} nm", fontsize=8, ha="right", va="center", zorder=21)
+    ax.set_zlim(zmin, zmax)          # 标线不许改变盒子比例 / 视角
+    return z0, z1
+
+
+def plot3d(z, px, py, out, title=None, z_mode="real", z_bar=None):
     """Single-file 3D surface map. z: nm; px/py: nm per pixel.
 
     z_mode: "real" (default) = z axis on the same physical scale as XY, no vertical
             exaggeration; "auto" = z shown at ~25% of the XY extent (keeps shallow relief
             readable); a number = manual z magnification factor.
+    z_bar:  z 标线 (0 → 最高高度). None=自动 (只在 z 刻度被隐藏时画, 免得和刻度重复);
+            True=总是画; False=不画.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -209,6 +244,12 @@ def plot3d(z, px, py, out, title=None, z_mode="real"):
     # 横纵轴 (X/Y) 严格按物理尺寸比例 + z 按显示模式; z 数据轴保持真实 nm
     ax.set_box_aspect((xr, yr, zr / 1000.0 * k))
     ticks_hidden = _apply_z_ticks(ax, z, xr, yr, zr, k)
+    # z 标线: 0 → 最高高度 (刻度被隐藏时读者仍能读出绝对高度) — 主人 2026-09-15 要求
+    # z_bar=None 自动: 只在刻度被隐藏 (存在 colorbar 但 z 轴无数字) 时画, 免得和刻度重复
+    if z_bar is None:
+        z_bar = bool(ticks_hidden)
+    if z_bar:
+        _z_scale_bar(ax, X, Y, z)
     ax.set_xlabel("X (µm)", labelpad=13)
     ax.set_ylabel("Y (µm)", labelpad=13)
     ax.tick_params(labelsize=8.5, pad=1.5)
