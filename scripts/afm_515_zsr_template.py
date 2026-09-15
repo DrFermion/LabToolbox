@@ -16,6 +16,7 @@ import csv
 import glob
 import os
 import shutil
+import subprocess
 import sys
 
 sys.path.insert(0, r"E:\LabToolbox")
@@ -132,12 +133,33 @@ def main():
           "这条尺子补的正是绝对高度参照。z 夸张模式（刻度可见）时不画，避免与刻度重复。", ""]
     open(os.path.join(OUT, "README.md"), "w", encoding="utf-8").write("\n".join(L))
 
+    # ---- 镜像到 E 盘工作副本 ----
+    # ⚠️ 别用 shutil.rmtree + copytree: 在本机 E:\... 上会 WinError 5 (拒绝访问) 中途炸掉,
+    #    旧代码还 except 一吞就当成功 → 留下"半新半旧"的镜像 (2026-09-15 实测: LIPSS 整组 13 张丢失)。
+    #    改成 robocopy /MIR (Windows 原生) + 复制后**核对图片张数**, 不一致必须报出来。
+    def _count_png(root):
+        return sum(len([f for f in fs if f.lower().endswith(".png")])
+                   for _r, _d, fs in os.walk(root))
+
     try:
-        if os.path.isdir(MIRROR):
-            shutil.rmtree(MIRROR)
-        shutil.copytree(OUT, MIRROR)
+        r = subprocess.run(["robocopy", OUT, MIRROR, "/MIR", "/NFL", "/NDL", "/NJH", "/NJS", "/NP"],
+                           capture_output=True, text=True, timeout=1800)
+        mirrored = r.returncode is not None and r.returncode < 8
+        if not mirrored:
+            print("⚠️ robocopy 返回", r.returncode, (r.stdout or "")[-300:])
     except Exception as e:
-        print("镜像失败:", e)
+        print("robocopy 异常, 回退 shutil:", e)
+        try:
+            if os.path.isdir(MIRROR):
+                shutil.rmtree(MIRROR)
+            shutil.copytree(OUT, MIRROR)
+            mirrored = True
+        except Exception as e2:
+            print("❌ 镜像失败:", e2)
+            mirrored = False
+    n_out, n_mir = _count_png(OUT), _count_png(MIRROR)
+    print(f"镜像: 交付 {n_out} 张 / 镜像 {n_mir} 张",
+          "✅" if (mirrored and n_out == n_mir and n_out > 0) else "❌ 不一致 —— 需手动补镜像")
 
     print("\n".join(L[28:]))
     print(f"\n输出: {OUT}\n合并表: {merged}\n对比表: {cmp_path}")
