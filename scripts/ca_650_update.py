@@ -151,7 +151,8 @@ def append_day2(ws, pairs):
 
 def draw(path, values, days, cond, title, note, ymax=None):
     fig, ax = plt.subplots(figsize=(7.8, 5.4))
-    xs = list(range(len(days)))
+    # x = elapsed day number, so a 4-day gap is drawn 4x wider than a 1-day gap
+    xs = [float(day_key(d)) if day_key(d) != 999 else i for i, d in enumerate(days)]
     for g in GROUPS:
         ys = [values[g].get(d, (None, 0))[0] for d in days]
         es = [values[g].get(d, (None, 0))[1] for d in days]
@@ -167,7 +168,7 @@ def draw(path, values, days, cond, title, note, ymax=None):
     for i, d in enumerate(days):
         c = cond.get(d)
         if c and c[1] is not None and c[2] is not None:
-            ax.annotate(f"{c[1]} °C, {c[2]}% RH", (i, 0), xytext=(0, -34),
+            ax.annotate(f"{c[1]} °C, {c[2]}% RH", (xs[i], 0), xytext=(0, -34),
                         textcoords="offset points", ha="center", fontsize=8, color="#555555")
     ax.set_ylabel("Water contact angle (deg)")
     ax.set_ylim(0, ymax or 100)
@@ -231,15 +232,14 @@ def main():
         for c in range(1, 9):
             ws.cell(r, c).value = None
     r = rows[-1][0] + 1
-    for title, (d1, d2) in {"Δ (Day 1 − Day 0)": ("Day 0", "Day 1"),
-                            "Δ (Day 2 − Day 1)": ("Day 1", "Day 2"),
-                            "Δ (Day 2 − Day 0)": ("Day 0", "Day 2")}.items():
-        if d1 not in all_days or d2 not in all_days:
-            continue
-        ws.cell(r, 1, title)
+    pairs = [(all_days[i], all_days[i + 1]) for i in range(len(all_days) - 1)]
+    if len(all_days) > 2:
+        pairs.append((all_days[0], all_days[-1]))
+    for a, b in pairs:
+        ws.cell(r, 1, f"Δ ({b} − {a})")
         for j, g in enumerate(GROUPS):
-            m1, _ = stat(data[g], d1)
-            m2, _ = stat(data[g], d2)
+            m1, _ = stat(data[g], a)
+            m2, _ = stat(data[g], b)
             ws.cell(r, 5 + j, f"{m2 - m1:+.2f}")
         r += 1
 
