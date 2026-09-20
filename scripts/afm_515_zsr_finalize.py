@@ -98,6 +98,19 @@ ZSR 未滤波，缺陷会真实地留在数据里 —— 以下三个 VirginSS �
         print("README 已补质量说明")
     print("对比表已重写:", cmp_path)
 
+    # --- 末端步骤 (2026-09-20 加): 细菌-织构接触示意图 ---
+    # 用同一套 ZSR 实测几何出 3D 黏附示意图 + 接触几何图; 失败不影响前面的交付
+    try:
+        from labtoolbox.contact_schematic import (measure_geometry, render_all,
+                                                  summarise, write_csv)
+        recs = measure_geometry(BASE)
+        write_csv(recs, os.path.join(OUT, "geometry_measurements.csv"))
+        geom = summarise(recs, lam_nm=515.0)
+        made = render_all(geom, os.path.join(OUT, "contact_schematic"), label="515 nm")
+        print("接触示意图:", ", ".join(os.path.basename(m) for m in made))
+    except Exception as e:
+        print(f"⚠️  接触示意图步骤跳过 (不影响交付): {e}")
+
 
 if __name__ == "__main__":
     main()

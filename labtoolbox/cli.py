@@ -5,6 +5,14 @@ import json
 import sys
 
 
+def _channel_arg(s):
+    """--channel 的解析: 纯数字当成通道索引, 其余当成通道名 (zsr/height/...)."""
+    if s is None:
+        return None
+    t = str(s).strip()
+    return int(t) if t.lstrip("-").isdigit() else t
+
+
 def cmd_growth_curve(args):
     from .growth_curve import run as gc_run
     result = gc_run(path=args.data, output_dir=args.output)
@@ -88,6 +96,16 @@ def cmd_surfmetrics(args):
     return 0
 
 
+def cmd_schematic(args):
+    """AFM 流程末端: 实测几何 → 细菌黏附 3D 示意图 + 接触几何图."""
+    from .contact_schematic.__main__ import main as schematic_main
+    argv = ["--input", args.input, "--out", args.out, "--label", args.label,
+            "--channel", args.channel, "--lambda", str(args.lam), "--dpi", str(args.dpi)]
+    if args.no_render:
+        argv.append("--no-render")
+    return schematic_main(argv)
+
+
 # 子命令注册表: 新增模块在这里加一行即可
 COMMANDS = {
     "growth-curve": (cmd_growth_curve, "生长曲线分析 (OD600/CFU 拟合)"),
@@ -96,6 +114,7 @@ COMMANDS = {
     "livedead": (cmd_livedead, "LIVE/DEAD 存活率统计"),
     "contact-angle": (cmd_contact_angle, "接触角/表面能计算"),
     "surfmetrics": (cmd_surfmetrics, "AFM 表面形貌: 3D 图 + 粗糙度 (Sa/Sq/Sz) + 表面积 (Sdr)"),
+    "schematic": (cmd_schematic, "细菌-织构接触示意图 (AFM 流程末端: 3D 黏附图 + 接触几何)"),
 }
 
 
@@ -134,6 +153,15 @@ def build_parser():
     p.add_argument("--theta2", type=float, required=True, help="液体2 接触角 (度)")
     p.add_argument("--liquid1", default="water", help="液体1 (默认 water)")
     p.add_argument("--liquid2", default="diiodomethane", help="液体2 (默认 diiodomethane)")
+
+    p = sub.add_parser("schematic", help=COMMANDS["schematic"][1])
+    p.add_argument("--input", required=True, help="AFM 原始数据 (.ibw 文件或目录, 递归)")
+    p.add_argument("--out", default="output", help="输出目录")
+    p.add_argument("--label", default="515 nm", help="样品标签 (进标题)")
+    p.add_argument("--channel", default="zsr", help=".ibw 通道 (默认 zsr)")
+    p.add_argument("--lam", type=float, default=515.0, help="激光波长 nm (FFT 物理窗口用)")
+    p.add_argument("--dpi", type=int, default=190)
+    p.add_argument("--no-render", action="store_true", help="只测量出表, 不画图")
 
     p = sub.add_parser("surfmetrics", help=COMMANDS["surfmetrics"][1])
     p.add_argument("--file", default=None, help="高度图文件 (.ibw/.tif/.txt/.xyz/.csv)")

@@ -15,6 +15,7 @@ Ruinong Pan 的生物医学实验室分析工具集 — 将 OneDrive 共享文�
 | `livedead_cellcounter` | LIVE/DEAD 荧光图像细胞计数 (repeat/时间/区域, 汇总+ANOVA) | numpy, opencv, Pillow |
 | `contact_angle` | 接触角/表面自由能计算 (OWRK 等) | numpy, scipy |
 | `surfmetrics` | AFM/SEM 高度图 → 3D 图 + 粗糙度 (Sa/Sq/Sz) + 表面积 (Sdr) | numpy, scipy, tifffile, igor* |
+| `contact_schematic` | **AFM 流程末端**: 实测几何 (周期/纹深/尖峰间距/柱高) → 细菌黏附 3D 示意图 + 接触几何图 | numpy, scipy, matplotlib, igor* |
 
 > *`igor` 用于 Bruker .ibw 直读, 需从 GitHub 安装: `pip install "igor @ git+https://github.com/wking/igor"` (PyPI 上的 `igor` 是空壳, 勿装)。
 
@@ -39,6 +40,7 @@ labtoolbox surfmetrics --folder "AFM 数据目录" --output 结果目录   # 批
 # 通道默认自动选 ZSR (ZSensor Retrace, 表面粗糙度分析要求); 旧口径用 --channel height
 # 参考线: --profile-mode cross (LIPSS 一条跨纹线) / hv (横纵两条) / auto; 条纹搜索带 --stripe-band 258 772
 labtoolbox surfmetrics --file sample.ibw                          # 单文件
+labtoolbox schematic --input "AFM 数据目录" --out 结果目录 --label "515 nm"   # 细菌-织构接触示意图 (AFM 末端步骤)
 ```
 
 ## 🖥️ GUI 界面 (tkinter, 零额外依赖)
