@@ -61,8 +61,13 @@ jobs:
           }
           if (-not $iscc) { Write-Error "ISCC.exe not found"; exit 1 }
           Write-Output "ISCC: $($iscc.FullName)"
-          # 版本号从 tag 提取 (v0.1.4 -> 0.1.4), 传给 iscc 的 MyAppVersion
+          # 版本号优先从 tag 提取 (v0.1.4 -> 0.1.4); 手动 workflow_dispatch 没有 tag,
+          # GITHUB_REF_NAME 会是分支名 (master), 直接喂给 Inno Setup 会报错 —— 退回读 pyproject 的版本。
           $tagVer = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($tagVer -notmatch '^\d+\.\d+') {
+            $tagVer = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+            Write-Output "非 tag 运行, 版本号改取自 pyproject.toml: $tagVer"
+          }
           Write-Output "安装包版本: $tagVer"
           & $iscc.FullName "/DMyAppVersion=$tagVer" "installer.iss"
           if ($LASTEXITCODE -ne 0) { Write-Error "ISCC failed with exit code $LASTEXITCODE"; exit $LASTEXITCODE }
