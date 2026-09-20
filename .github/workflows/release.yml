@@ -4,7 +4,7 @@ on:
   push:
     tags:
       - "v*"          # 推送 v0.1.0 等标签时触发
-  workflow_dispatch:  # 也支持手动触发
+  workflow_dispatch:  # 也支持手动触发 (仅构建, 不发布 — 发布需打 tag)
 
 jobs:
   build:
@@ -15,9 +15,16 @@ jobs:
           - os: windows-latest
             artifact: LabToolbox-Windows
             zipname: LabToolbox-Windows
+            files: |
+              dist/LabToolbox-Windows.zip
+              installer/*.exe
           - os: macos-latest
             artifact: LabToolbox-macOS
             zipname: LabToolbox-macOS
+            # 只上传 DMG: zip 与 DMG 装的是同一份 .app, 两份一起传曾把上传体积翻倍,
+            # 2026-09-20 v0.1.7 那次就是在 ~328 MB 处 ETIMEDOUT 挂掉的。
+            files: |
+              dist/LabToolbox-macOS.dmg
 
     runs-on: ${{ matrix.os }}
 
@@ -74,26 +81,21 @@ jobs:
         run: |
           hdiutil create -volname "LabToolbox" -srcfolder dist/LabToolbox.app -ov -format UDZO dist/${{ matrix.zipname }}.dmg
 
-      - name: Create zip (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          cd dist
-          zip -r ${{ matrix.zipname }}.zip LabToolbox.app
-          cd ..
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: |
-            dist/${{ matrix.zipname }}.zip
-            dist/${{ matrix.zipname }}.dmg
-            installer/*.exe
+          path: ${{ matrix.files }}
+          # zip/dmg 已经压过, 再压一遍纯浪费 CPU 和时间
+          compression-level: 0
+          # 产物在 Release 页面还有一份, 这里只留两周, 免得 Actions 存储越堆越大
+          retention-days: 14
           if-no-files-found: warn
 
   release:
     needs: build
+    # 手点 workflow_dispatch 时只构建、不发布 (发布一律走 tag)
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
