@@ -584,6 +584,7 @@ def gwy_batch_wsl(paths, level=True, channel=None, timeout=600):
                   ("--channel %d" % channel) if channel is not None else "",
                   "/root/" + os.path.basename(tmp))]
         proc = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
                               timeout=timeout, env=dict(os.environ))
         # 拷回 Windows 临时路径 (WSL 侧须用 /mnt/... 路径)
         subprocess.run(["wsl", "-d", "Ubuntu", "-u", "root", "--", "bash", "-lc",
@@ -601,7 +602,7 @@ def gwy_batch_wsl(paths, level=True, channel=None, timeout=600):
             os.unlink(tmp)
         if not rows or rows[-1].get("file") != os.path.basename(p):
             raise RuntimeError("gwy_batch 无输出: %s (err: %s)"
-                               % (p, (proc.stderr + proc.stdout)[-300:]))
+                               % (p, ((proc.stderr or "") + (proc.stdout or ""))[-300:]))
     return rows
 
 
