@@ -163,13 +163,15 @@ def draw(path, values, days, cond, title, note, ymax=None):
                 ax.annotate(f"{yy:.1f}", (xx, yy), xytext=(6, 7),
                             textcoords="offset points", fontsize=8, color=COLOR[g])
     ax.set_xticks(xs)
-    ax.set_xticklabels([f"{d} ({cond.get(d, ('',))[0]})" if cond.get(d, ('',))[0] else d
-                        for d in days])
-    for i, d in enumerate(days):
-        c = cond.get(d)
-        if c and c[1] is not None and c[2] is not None:
-            ax.annotate(f"{c[1]} °C, {c[2]}% RH", (xs[i], 0), xytext=(0, -34),
-                        textcoords="offset points", ha="center", fontsize=8, color="#555555")
+    # 温湿度并进刻度标签 (原来单独 annotate 在下方, 天数密的时候会互相重叠)
+    labels = []
+    for d in days:
+        c = cond.get(d) or ("", None, None)
+        head = f"{d} ({c[0]})" if c[0] else d
+        if c[1] is not None and c[2] is not None:
+            head += f"\n{c[1]}°C, {c[2]}%"
+        labels.append(head)
+    ax.set_xticklabels(labels, fontsize=7.5)
     ax.set_ylabel("Water contact angle (deg)")
     ax.set_ylim(0, ymax or 100)
     ax.set_title(title, fontsize=11)

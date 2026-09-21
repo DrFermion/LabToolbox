@@ -98,11 +98,15 @@ def main():
             if is_day(ws.cell(r, 1).value)]
     labels = [d for _, d in rows]
     if day not in labels:
-        anchor = rows[-1][0]
+        # 按天数插到正确位置 (不能简单追加到末尾, 否则 Day 3 会排到 Day 8 后面)
+        num = int(re.search(r"(\d+)", day).group(1))
+        earlier = [rr for rr, d in rows
+                   if re.search(r"(\d+)", d) and int(re.search(r"(\d+)", d).group(1)) < num]
+        anchor = max(earlier) if earlier else rows[0][0] - 1
         ws.insert_rows(anchor + 1)
         r = anchor + 1
         ws.cell(r, 1, day)
-        print(f"  summary: 新增 {day} 行 (r{r})")
+        print(f"  summary: 新增 {day} 行 (r{r}, 按天数插入)")
     else:
         r = dict((d, rr) for rr, d in rows)[day]
     ws.cell(r, 2, args.date)
