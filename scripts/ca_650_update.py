@@ -177,7 +177,15 @@ def draw(path, values, days, cond, title, note, ymax=None):
     ax.set_xticklabels(labels, fontsize=7.5)
     ax.set_xlabel("Day (date)  ·  T °C / RH %", fontsize=8, labelpad=3)
     ax.set_ylabel("Water contact angle (deg)")
-    ax.set_ylim(0, ymax or 100)
+    if ymax is None:
+        top = 60.0
+        for g in GROUPS:
+            for d in days:
+                m, s = values[g].get(d, (None, 0))
+                if m is not None:
+                    top = max(top, m + s)
+        ymax = 10 * (int(top // 10) + 1)
+    ax.set_ylim(0, ymax)
     ax.set_title(title, fontsize=11)
     ax.grid(axis="y", alpha=0.25)
     ax.legend(title="Surface area", fontsize=9, title_fontsize=9, loc="upper left")
