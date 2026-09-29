@@ -150,7 +150,9 @@ def append_day2(ws, pairs):
 
 
 def draw(path, values, days, cond, title, note, ymax=None):
-    fig, ax = plt.subplots(figsize=(7.8, 5.4))
+    # 10.2 in wide + 7 pt tick labels: measured overlap-free with 8 time points
+    # (7.8 in / 7.5 pt gives 8.7 pt of overlap between the Day 0-1-2-3 labels once Day 19 extends the axis)
+    fig, ax = plt.subplots(figsize=(10.2, 5.6))
     # x = elapsed day number, so a 4-day gap is drawn 4x wider than a 1-day gap
     xs = [float(day_key(d)) if day_key(d) != 999 else i for i, d in enumerate(days)]
     for g in GROUPS:
@@ -174,7 +176,7 @@ def draw(path, values, days, cond, title, note, ymax=None):
         if c[1] is not None and c[2] is not None:
             parts.append(f"{c[1]}°/{c[2]}%")
         labels.append("\n".join(parts))
-    ax.set_xticklabels(labels, fontsize=7.5)
+    ax.set_xticklabels(labels, fontsize=7.0)
     ax.set_xlabel("Day (date)  ·  T °C / RH %", fontsize=8, labelpad=3)
     ax.set_ylabel("Water contact angle (deg)")
     if ymax is None:
