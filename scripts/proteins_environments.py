@@ -28,7 +28,7 @@ sys.path.insert(0, r"E:\LabToolbox")
 from labtoolbox.xdlvo.xdlvo import SurfaceEnergy, delta_g, interaction_energy  # noqa: E402
 from labtoolbox.xdlvo.sei import sei_sphere_on_flat, sei_sphere_on_surface, sphere_lower  # noqa: E402
 
-OUT = r"E:\LabToolbox\output\proteins_environments_20260929"
+OUT = r"E:\LabToolbox\output\proteins_environments_20260930"
 os.makedirs(OUT, exist_ok=True)
 LOG = io.StringIO()
 
