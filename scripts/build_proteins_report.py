@@ -35,6 +35,51 @@ bact = pd.read_csv(os.path.join(OUT, "bacteria_on_films.csv"), encoding="utf-8-s
 envs = pd.read_csv(os.path.join(OUT, "environments_composition.csv"), encoding="utf-8-sig")
 sei5 = pd.read_csv(os.path.join(OUT, "sei_protein_scale_R5.csv"), encoding="utf-8-sig")
 fld = pd.read_csv(os.path.join(BSA_OUT, "bsa_sei_field_stats.csv"), encoding="utf-8-sig")
+sta = pd.read_csv(os.path.join(OUT, "protein_stable_period.csv"), encoding="utf-8-sig")
+bss = pd.read_csv(os.path.join(OUT, "bacteria_on_films_stable.csv"), encoding="utf-8-sig")
+
+
+def stable_rows():
+    rows = []
+    for prot in PROT_ORDER:
+        r = [prot]
+        for surf in SURF_ORDER:
+            v = sta[(sta.surface == surf) & (sta.protein == prot)].iloc[0]
+            r.append(f"{v.dG_ADH_mean:+.2f} ± {v.dG_ADH_std:.2f} / {v.barrier_kT_mean:+.1f} ± {v.barrier_kT_std:.1f}")
+        rows.append(r)
+    return rows
+
+
+BS_ORDER = ["bare LIPSS fresh (day 0)", "bare LIPSS stable (days 49-73)",
+            "bare Control fresh (day 0)", "bare Control stable (days 49-73)",
+            "Albumin (BSA A) film", "Albumin (BSA B) film",
+            "Fibrinogen (human) film", "Fibronectin (human) film"]
+BS_LABEL = {"bare LIPSS fresh (day 0)": "裸 LIPSS（新鲜, day 0）",
+            "bare LIPSS stable (days 49-73)": "裸 LIPSS（稳定期 49–73 天均态）",
+            "bare Control fresh (day 0)": "裸对照 316L（新鲜, day 0）",
+            "bare Control stable (days 49-73)": "裸对照 316L（稳定期均态）",
+            "Albumin (BSA A) film": "白蛋白膜（Set A）",
+            "Albumin (BSA B) film": "白蛋白膜（Set B）",
+            "Fibrinogen (human) film": "纤维蛋白原膜",
+            "Fibronectin (human) film": "纤连蛋白膜"}
+
+
+def fmt_kT(x):
+    if abs(x) >= 1e4:
+        return f"{x/1e4:+.1f}" + "×10⁴"
+    if abs(x) >= 1e3:
+        return f"{x/1e3:+.1f}" + "×10³"
+    return f"{x:+.0f}"
+
+
+def bact_rows():
+    rows = []
+    for k in BS_ORDER:
+        a = bss[(bss.bacterium == "S. aureus 12600") & (bss.substrate == k)].iloc[0]
+        b = bss[(bss.bacterium == "E. coli F1693") & (bss.substrate == k)].iloc[0]
+        rows.append([BS_LABEL[k], f"{a.dG_ADH:+.1f} / {fmt_kT(a.barrier_kT)}",
+                     f"{b.dG_ADH:+.1f} / {fmt_kT(b.barrier_kT)}"])
+    return rows
 
 
 def snap(day):
@@ -92,7 +137,7 @@ A(("h2", "任务二：三种体液环境中的黏附模拟（37 °C，0.15 M）"
 A(("bullet", [
     "计算对象：4 个蛋白参数组（白蛋白 BSA 两套文献参数、人纤维蛋白原、人纤连蛋白）× 3 种表面（LIPSS / 纳米柱 / 抛光对照 316L）× 表面时效 0–81 天。",
     "第 0 天（新鲜态）：LIPSS 与纳米柱对四个参数组全部排斥（势垒 +36…+161 kT，≫ 10 kT 吸附阈值）；对照 316L 对其中三个参数组排斥（+41…+83 kT），仅白蛋白参数组 A 已转为弱吸引（−17 kT）——抛光对照对参数选择更敏感。",
-    "但表面状态不是单向老化：81 天序列里势垒在 −197…+161 kT 之间往返，多次出现深吸引态（LIPSS 上 Fg 在第 15/22/49/58/65/73 天为负势垒，势阱最深 −197 kT）。也就是说，样品“抗不抗蛋白”取决于它当下的表面（接触角/SFE）状态，而不是简单取决于“放了几天”。",
+    "只取两个端态：新鲜（第 0 天）与最终稳定期（第 49–73 天，n = 4，均值 ± SD）——新鲜态排斥（势垒 +36…+161 kT），最终稳定期对四种蛋白全部转为强吸引（ΔG −17…−38 mJ/m²、势垒 −78…−175 kT，无势垒）；中间过渡期（第 1–44 天）表面能波动，本报告不展开（逐日值见 CSV）。",
     "纤维蛋白原在吸引态下给出四者中最深的势阱（−197 kT），在排斥态下与纤连蛋白同属势垒最高的一档（142–161 kT）——与文献中 Fg 在血液接触材料上最表面活性的地位一致，也与 Vroman 效应（早期白蛋白主导 → 后期被高亲和蛋白替换）的方向一致。",
     "三种体液环境的差异不在热力学而在组成：三者离子强度都 ≈0.15 M，单蛋白的 ΔG/势垒在三环境中相同；差别是“有哪几种蛋白”（血浆有完整的 Vroman 级联，组织液与关节液以白蛋白为主、几乎无纤维蛋白原）。只要表面进入吸引态，三种环境里都会形成蛋白条件膜。",
     "纹理在蛋白尺度上不起“几何屏蔽”作用：SEI 几何因子中位 0.991–1.005（蛋白 R=3.5–5 nm vs 织构特征 47–53 nm），而同一方法对细菌尺度的几何屏蔽可达 −84%。蛋白会照常铺满沟槽内外——论文中“激光纹理抗菌”的论证不应写成“抗蛋白”机制。",
@@ -101,7 +146,7 @@ A(("bullet", [
 A(("h2", "三条可直接检验的预测"))
 A(("bullet", [
     "P1：新鲜（亲水）LIPSS/纳米柱上的 BSA/Fg 吸附量应显著低于抛光对照；且两套白蛋白参数给出同向结论。",
-    "P2：处于“老化态”（γ⁻ 坍塌、接触角升高）的表面吸附量接近饱和单层，且 Fg/白蛋白吸附比随时间上升（Vroman）。",
+    "P2：处于最终稳定期（γ⁻ 坍塌、接触角升高）的表面吸附量接近饱和单层，且 Fg/白蛋白吸附比随时间上升（Vroman）。",
     "P3：2% SDS + 30–60 min（可加轻度超声）应能回收 ≥95% 的吸附蛋白，且残留比例随“吸附后放置时间”增加——这正好用 §2 的协议验证。",
 ]))
 
@@ -223,31 +268,24 @@ A(("table", "表 7  自检（全部通过）",
        ["d", "SEI 数值解 vs Derjaguin（O(λ/R) 修正）", "R=3.5 nm：−17.5%；R=5 nm：−12.0% ✓（如实报告）"],
        ["e", "interaction_energy 量纲自检（本任务发现并修复了模块的一个量纲 bug）", "scripts/xdlvo_unit_check.py：PASS，与独立解析式 0.000% 偏差 ✓"],
    ]))
-A(("h2", "3.2 极端状态下的黏附矩阵（新鲜 vs 深老化）"))
-A(("p", "表 8 = 新鲜态（第 0 天）；表 9 = 深老化态（第 58 天，三种表面的 γ⁻ 均已坍塌到 ≤0.22 mJ/m²）。每格为 ΔG_ADH (mJ/m²) / 势垒 (kT)；负势垒表示没有势垒、直接落进吸引势阱。"))
+A(("h2", "3.2 两个端态：新鲜 vs 最终稳定期"))
+A(("p", "表 8 = 新鲜态（第 0 天）；表 9 = 最终稳定期（第 49–73 天，n = 4 的均值 ± SD；该窗口内三种表面对四种蛋白一致为负势垒，γ⁻ 已坍塌到 ≤0.22 mJ/m²）。每格为 ΔG_ADH (mJ/m²) / 势垒 (kT)；负势垒表示没有势垒、直接落进吸引势阱。"))
 A(("table", "表 8  新鲜态（day 0）：ΔG_ADH (mJ/m²) / 势垒 (kT)",
    ["蛋白", "LIPSS", "纳米柱", "对照 316L"],
    snap(0)))
-A(("table", "表 9  深老化态（day 58）",
+A(("table", "表 9  最终稳定期（第 49–73 天，mean ± SD，n = 4）",
    ["蛋白", "LIPSS", "纳米柱", "对照 316L"],
-   snap(58)))
+   stable_rows()))
 A(("fig", os.path.join(OUT, "fig1_dGADH_matrix.png"),
-   "图 1  蛋白黏附自由能 ΔG_ADH：4 个参数组 × 3 种表面 × 新鲜（左）/ 深老化（右）。正值 = 排斥，负值 = 吸引。"))
-A(("h2", "3.3 时效效应：表面状态会往返变化"))
-A(("p", "把 81 天全部时间点（剔除第 7–10 天可疑占位数据点）连起来看，势垒并不是单调衰减，而是**在排斥态与深吸引态之间往返**。以 LIPSS 上的纤维蛋白原为例：负势垒出现在第 " + "、".join(str(d) for d in NEG_D) + " 天（全局最深的势阱 −197 kT：纳米柱第 58 天；LIPSS 上最深 −193 kT，在第 22 天），而第 " + "、".join(str(d) for d in POS_D) + " 天又回到正势垒（最高 +161 kT）。"))
-A(("table", "表 10  81 天序列统计（势垒 kT；“负/总”= 负势垒天数/总天数）",
-   ["表面", "蛋白", "序列最小", "序列最大", "负/总"],
-   day_stats()))
+   "图 1  蛋白黏附自由能 ΔG_ADH：新鲜（左）vs 最终稳定期（右，误差棒 = 4 个时间点的 SD）。正值 = 排斥，负值 = 吸引。"))
+A(("h2", "3.3 口径说明（为什么只取两个端态）"))
 A(("bullet", [
-    "新鲜/亲水态（第 0 天为代表）→ 全参数组排斥（+36…+161 kT；对照 316L 上的白蛋白 Set A 例外，−17 kT）；",
-    "深吸引态（第 15、22、49、58、65、73 天为代表）→ 全参数组强吸引，势阱可深达 −197 kT（不可逆量级）；",
-    "因此准确的表述是：能否抗蛋白取决于**当下的表面状态**（接触角/SFE），而不是简单取决于“放了几天”。建议每次实验当天测量接触角并用三液法换算 SFE，再对照表 8/9 判断预期行为。",
+    "新鲜态 = 第 0 天；最终稳定期 = 第 49、58、65、73 天（4 个时间点，三种表面在该窗口内对全部蛋白一致为负势垒）。",
+    "第 1–44 天为过渡/波动期（表面能在亲水与疏水状态之间往返），本报告只取两个端态；逐日全序列见 data/protein_surface_matrix.csv。",
+    "第 81 天的 LIPSS 为已知接触角尖峰异常（四蛋白均异常回到正势垒），已从稳定期统计中剔除；纳米柱与对照在当天仍为吸引态，与稳定期一致。",
 ]))
-A(("p", "另外，接触角序列的往返波动本身也提示测量流程要固定（同一操作者、同一批探测液体、同一天完成各区域测量），否则表面状态的时间趋势会被测量变异掩盖。"))
-A(("fig", os.path.join(OUT, "fig2_barrier_vs_age.png"),
-   "图 2  势垒随表面时效的变化（全 81 天序列；左：LIPSS，右：对照 316L）。横轴以上 = 排斥，以下 = 吸引势阱。"))
 A(("h2", "3.4 三种体液环境"))
-A(("table", "表 11  体液组成（pH 7.4；离子强度均 ≈0.15 M）",
+A(("table", "表 10  体液组成（pH 7.4；离子强度均 ≈0.15 M）",
    ["环境", "白蛋白", "纤维蛋白原", "IgG", "纤连蛋白", "其他 / 备注"],
    [
        ["血浆", "35–50 g/L", "2–4 g/L", "10–15 g/L", "≈0.3 g/L", "总蛋白 60–80 g/L"],
@@ -262,9 +300,9 @@ A(("bullet", [
     "结论：**在哪个体液环境不改变“会不会吸附”（进入吸引态的表面都会吸附），只改变“吸附成什么样”。**",
 ]))
 A(("fig", os.path.join(OUT, "fig3_uh_profiles.png"),
-   "图 3  LIPSS 在体液条件（37 °C, 0.15 M）下的 U(h) 曲线：左 = 新鲜态（接触处正势垒），右 = 深老化态（接触处深势阱）。横轴对数尺度（AB 作用衰减长度 0.6 nm，接触附近特征集中在 <2 nm）。"))
+   "图 2  LIPSS 在体液条件（37 °C, 0.15 M）下的 U(h) 曲线：左 = 新鲜态（接触处正势垒），右 = 最终稳定期（第 49–73 天平均表面能；接触处深势阱）。横轴对数尺度（AB 作用衰减长度 0.6 nm，接触附近特征集中在 <2 nm）。"))
 A(("h2", "3.5 几何效应：纹理对蛋白“不存在”"))
-A(("table", "表 12  SEI 几何因子（蛋白尺度 vs 细菌尺度）",
+A(("table", "表 11  SEI 几何因子（蛋白尺度 vs 细菌尺度）",
    ["体系", "特征曲率 Rc（中位）", "几何因子（中位）", "P1–P99", "|偏差|>5% 的像素"],
    [
        ["LIPSS（R = 3.5 nm 蛋白, 真实 AFM 场）", "47.2 nm", "0.991", "0.941–1.101", "12.4%"],
@@ -275,26 +313,17 @@ A(("table", "表 12  SEI 几何因子（蛋白尺度 vs 细菌尺度）",
    ]))
 A(("p", "含义：蛋白（3.5–5 nm）比织构特征尺寸（沟距 ~412–466 nm、脊/柱 ~50 nm 尺度）小两个数量级，接触能量对形貌几乎不敏感（中位因子 ≈1），蛋白会进入沟内并贴壁铺满；而细菌尺度上同一套方法给出的几何屏蔽可达 −84%。因此：**纹理若要有“抗吸附”效果，必须靠化学（水化层/聚合物刷/两性离子等），不能靠形貌**——论文中“激光织构抗菌”的论证不要写成“抗蛋白”。"))
 A(("h2", "3.6 条件膜对细菌黏附的影响"))
-A(("table", "表 13  细菌对裸面与蛋白条件膜的非特异黏附能",
+A(("table", "表 12  细菌对裸面与蛋白条件膜的非特异黏附能（稳定期用 49–73 天平均表面能）",
    ["基底", "S. aureus ΔG (mJ/m²) / 势垒 (kT)", "E. coli ΔG (mJ/m²) / 势垒 (kT)"],
-   [
-       ["裸 LIPSS（新鲜, day 0）", "+50.5 / +2.1×10⁴", "+50.1 / +2.1×10⁴"],
-       ["裸 LIPSS（老化, day 58）", "−30.6 / −1.3×10⁴", "−32.6 / −1.4×10⁴"],
-       ["裸对照 316L（新鲜, day 0）", "+27.3 / +1.1×10⁴", "+26.7 / +1.1×10⁴"],
-       ["裸对照 316L（老化, day 58）", "−30.9 / −1.3×10⁴", "−33.0 / −1.4×10⁴"],
-       ["白蛋白膜（Set A）", "+17.3 / +7.8×10³", "+15.5 / +7.4×10³"],
-       ["白蛋白膜（Set B）", "+38.5 / +1.6×10⁴", "+37.9 / +1.6×10⁴"],
-       ["纤维蛋白原膜", "+37.5 / +1.6×10⁴", "+36.7 / +1.6×10⁴"],
-       ["纤连蛋白膜", "+37.4 / +1.5×10⁴", "+37.8 / +1.6×10⁴"],
-   ]))
+   bact_rows()))
 A(("bullet", [
-    "极值对比：新鲜裸面 +50.5（强排斥）↔ 老化裸面 −30.6（吸引）——表面状态一变，结论直接翻转；",
+    "极值对比：新鲜裸面 +50.5（强排斥）↔ 稳定期裸面 −22…−31（吸引）——表面状态一变，结论直接翻转；",
     "三种亲水蛋白膜上细菌仍被排斥（+15…+38），即“条件膜把不同基底的界面缓冲到中间水平”；",
     "但真实体系中纤维蛋白原/纤连蛋白可通过特异性识别（细菌表面黏附素）促进黏附，这不在 XDLVO 框架内 → 条件膜的净效应必须实验判定；",
     "数值说明：细菌尺度的势垒数值巨大（10³–10⁴ kT）是 Derjaguin 线性化在 R=450 nm × 强 AB 项下的放大效应；判读只看符号与“是否 ≫10 kT”。",
 ]))
 A(("fig", os.path.join(OUT, "fig4_bacteria_on_films.png"),
-   "图 4  细菌黏附自由能：裸面（新鲜/老化）vs 蛋白条件膜。"))
+   "图 3  细菌黏附自由能：裸面（新鲜/最终稳定期）vs 蛋白条件膜。"))
 A(("h2", "3.7 局限（必读）"))
 A(("bullet", [
     "蛋白按刚性等效球处理；真实 Fg（长约 45–50 nm）会构象展开、多点接触 → 模型**低估** Fg/Fn 的吸附强度；",
@@ -302,7 +331,7 @@ A(("bullet", [
     "IgG、转铁蛋白、透明质酸、润滑素、脂质未建模（缺 XDLVO 参数）；",
     "ζ 电位：表面取 −25 mV（未实测），蛋白取文献值；0.15 M 下 EL 对本结果的贡献仅 0.34 mJ/m²，结论不敏感；",
     "温度口径：本报告 37 °C；此前交付的模拟为 25 °C，差异仅来自 kT 归一化（约 4%）；",
-    "表面 SFE 由接触角三液法换算，已剔除第 7–10 天可疑数据点；第 81 天 LIPSS 为已知接触角尖峰异常（图中保留但已标注）；",
+    "表面 SFE 由接触角三液法换算，已剔除第 7–10 天可疑数据点；第 81 天 LIPSS 的接触角尖峰异常已从稳定期统计中剔除；",
     "球–平面 Derjaguin 在 R=3.5–5 nm 有 −12…−17.5% 的系统偏差（SEI 数值解更准）；CSV 中另附 SEI 修正列；",
     "条件膜按天然态、连续、完全水合处理；实际吸附膜可能变性（更疏水）→ 条件膜对细菌的排斥可能被高估。",
 ]))
@@ -322,7 +351,8 @@ A(("h1", "附录 A  文件清单"))
 A(("bullet", [
     "模拟脚本：E:\\LabToolbox\\scripts\\proteins_environments.py（参数集中在文件头部，可改蛋白/表面/介质后重跑）；",
     "量纲自检：E:\\LabToolbox\\scripts\\xdlvo_unit_check.py（对照独立解析 Derjaguin 校验 interaction_energy）；",
-    "数据：protein_surface_matrix.csv（3 表面 × 20 天 × 4 蛋白全序列）、bacteria_on_films.csv、environments_composition.csv、sei_protein_scale_R5.csv；",
+    "两端态汇总与图重制：E:\\LabToolbox\\scripts\\proteins_stable_period.py；",
+    "数据：protein_surface_matrix.csv（3 表面 × 20 天 × 4 蛋白逐日全序列）、protein_stable_period.csv（稳定期 mean ± SD）、bacteria_on_films_stable.csv、environments_composition.csv、sei_protein_scale_R5.csv；",
     "自检日志：selfcheck_and_log.txt；图：fig1–fig4（PNG, 300 dpi）。",
 ]))
 A(("h1", "附录 B  参考文献"))
@@ -438,6 +468,7 @@ def build_docx(path):
         elif kind == "table":
             _, cap, headers, rows = blk
             p = doc.add_paragraph(); p.paragraph_format.space_before = Pt(8)
+            p.paragraph_format.keep_with_next = True
             set_font(p.add_run(cap), 10, bold=True)
             t = doc.add_table(rows=1 + len(rows), cols=len(headers))
             t.style = "Table Grid"
@@ -449,10 +480,18 @@ def build_docx(path):
                 for j, val in enumerate(row):
                     c = t.cell(i, j); c.text = ""
                     set_font(c.paragraphs[0].add_run(str(val)), 9)
+            for ri, trow in enumerate(t.rows):
+                trPr = trow._tr.get_or_add_trPr()
+                trPr.append(OxmlElement("w:cantSplit"))
+                if ri < len(t.rows) - 1:
+                    for cc in trow.cells:
+                        for pp in cc.paragraphs:
+                            pp.paragraph_format.keep_with_next = True
             p2 = doc.add_paragraph(); set_font(p2.add_run(""), 6)
         elif kind == "fig":
             _, img, cap = blk
             p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.paragraph_format.keep_with_next = True
             p.add_run().add_picture(img, width=Cm(16.0))
             pc = doc.add_paragraph(); pc.alignment = WD_ALIGN_PARAGRAPH.CENTER
             set_font(pc.add_run(cap), 9, color=(0x44, 0x44, 0x44))
@@ -518,9 +557,9 @@ def main():
         "# 蛋白质黏附：方案与模拟（2026-09-30）\n\n"
         "本文件夹归档「人体体液环境中的蛋白质黏附」报告及相关数据。\n\n"
         "* 报告：蛋白质黏附_方案与模拟报告_20260930.docx（同 .md 纯文本版）\n"
-        "* figures/：报告插图 fig1–fig4（300 dpi PNG）\n"
-        "* data/：protein_surface_matrix.csv（3 表面 × 全时效 × 4 蛋白组）、bacteria_on_films.csv、"
-        "environments_composition.csv、sei_protein_scale_R5.csv、selfcheck_and_log.txt\n\n"
+        "* figures/：fig1–fig4（300 dpi PNG；报告正文用 fig1/fig3/fig4，fig2 = 全时效序列供追溯）\n"
+        "* data/：protein_surface_matrix.csv（3 表面 × 全时效 × 4 蛋白组逐日）、protein_stable_period.csv（最终稳定期 mean ± SD）、"
+        "bacteria_on_films_stable.csv、environments_composition.csv、sei_protein_scale_R5.csv、selfcheck_and_log.txt\n\n"
         "重跑复现：E:\\LabToolbox\\scripts\\proteins_environments.py（模拟）与 "
         "scripts\\build_proteins_report.py（报告）。参见报告附录 A。\n\n"
         "---\n\n"
