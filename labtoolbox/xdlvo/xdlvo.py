@@ -104,27 +104,37 @@ def delta_g(membrane, foulant, I_M, T_K=298.15, zeta_m=None, zeta_f=None):
 
 def interaction_energy(membrane, foulant, dG, radius_nm, I_M, T_K=298.15,
                        zeta_m=None, zeta_f=None):
+    """球–平面 XDLVO 相互作用能曲线 U(h)，返回单位 = kT。
+
+    2026-09-29 量纲修正（修正前 LW 项比 AB 项小 1000×、EL 项又是独立量纲 → 曲线失真；
+    用 scripts/xdlvo_unit_check.py 对照解析 Derjaguin 自检）：
+        U_LW = 2π R ΔG^LW h0² / h
+        U_AB = 2π R λ ΔG^AB exp((h0 − h)/λ)
+        U_EL = π ε0 εr R [ 2ψ1ψ2·ln((1+e^−κh)/(1−e^−κh)) + (ψ1²+ψ2²)·ln(1−e^−2κh) ]   (HHF)
+    长度内部取 SI(m)，ΔG 输入 mJ/m²（自动换算），ζ 输入 mV，输出除以 kT(T_K)。
+    """
     p = PARAMS
-    h = np.arange(p['hmin'], p['hmax'] + p['dh'], p['dh'])
-    a = radius_nm
-    u_lw = 2*np.pi*dG['LW']*p['h0']**2*a*1e-6 / h
-    u_ab = 2*np.pi*a*p['lambda_ab']*dG['AB']*np.exp((p['h0']-h)/p['lambda_ab'])*1e-3
+    h_nm = np.arange(p['hmin'], p['hmax'] + p['dh'], p['dh'])
+    h = h_nm * 1e-9                  # m
+    a = radius_nm * 1e-9             # m
+    h0 = p['h0'] * 1e-9              # m
+    lam = p['lambda_ab'] * 1e-9      # m
+    kT = PHYS['k'] * T_K
+    u_lw = 2*np.pi*a*dG['LW']*1e-3*h0**2/h / kT
+    u_ab = 2*np.pi*a*lam*dG['AB']*1e-3*np.exp((h0 - h)/lam) / kT
     u_el = np.zeros_like(h)
     if zeta_m is not None and zeta_f is not None:
-        kappa = debye_length(I_M, T_K)
+        kappa_1nm = debye_length(I_M, T_K)       # κ, 单位 1/nm
         eps_r = water_dielectric(T_K)
-        zm, zf = zeta_m, zeta_f
-        pref = np.pi*eps_r*PHYS['eps0']*a
-        z_prod = 2*zm*zf
-        z_sum_sq = zm**2 + zf**2
-        exp_kh = np.exp(-kappa*h)
-        exp_2kh = np.exp(-2*kappa*h)
-        denom = np.clip(1 - exp_kh, 1e-12, None)
-        term1 = np.log((1 + exp_kh)/denom)
-        term2 = np.log(1 - exp_2kh)
-        u_el = pref*0.5*(z_prod*term1 + z_sum_sq*term2)*1e4
+        zm, zf = zeta_m*1e-3, zeta_f*1e-3        # V
+        kh = kappa_1nm * h_nm
+        e1 = np.exp(-np.clip(kh, 0, 700))
+        e2 = np.exp(-np.clip(2*kh, 0, 700))
+        term1 = np.log((1 + e1)/np.clip(1 - e1, 1e-12, None))
+        term2 = np.log(np.clip(1 - e2, 1e-12, None))
+        u_el = np.pi*PHYS['eps0']*eps_r*a*(2*zm*zf*term1 + (zm**2 + zf**2)*term2) / kT
     u_tot = u_lw + u_ab + u_el
-    return {'h': h, 'LW': u_lw, 'AB': u_ab, 'EL': u_el, 'TOT': u_tot}
+    return {'h': h_nm, 'LW': u_lw, 'AB': u_ab, 'EL': u_el, 'TOT': u_tot}
 
 
 def analyze_profile(energy):
