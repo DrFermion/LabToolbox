@@ -6,7 +6,7 @@
 用法：  python build_laser_antibacterial_review_zh.py [output_dir]
          （默认输出到 scratch build 目录；传入归档目录可原地重建）
 
-2026-10-07 建立（初稿 v1，中文版）。需要 python-docx。
+2026-10-07 建立（初稿 v1，中文版；v3 同日更新：§3.7 预测建模 + 图 4）。需要 python-docx。
 """
 import os, re, sys
 from docx import Document
@@ -241,7 +241,7 @@ ABSTRACT = [
  "的抗菌机理——形貌驱动的抗黏附、高纵横比纳米结构上的机械杀菌膜破裂、表面化学效应与蛋白"
  "条件膜相互作用——并分析已发表结果为何差异巨大。最后，讨论工艺工程层面的推论：激光波长是一项"
  "离散的硬件属性（基频加谐波档位），而非连续可调参数，因此现实中可得到的 LIPSS 周期是量子化"
- "（离散）的；直接激光干涉图案化等替代路线可以把周期与波长解耦。综述最后给出当前塑造该领域的"
+ "（离散）的；直接激光干涉图案化等替代路线可以把周期与波长解耦。综述还梳理了以预测结构本身为目标的计算方法——电磁效率因子的数值计算、能量沉积与熔体动力学的多物理场模拟，以及数据驱动模型——并说明这类预测对加工中表面光学状态的强烈依赖。综述最后给出当前塑造该领域的"
  "开放问题与标准化需求。",
 ]
 KEYWORDS = ("关键词：激光表面织构；激光诱导周期性表面结构（LIPSS）；抗菌表面；细菌黏附；"
@@ -280,7 +280,7 @@ S1 = [
        "也被称为“黑金属” (Vorobyev and Guo, 2013; Bonse et al., 2017)。两类形貌均已针对"
        "细菌进行了测试，结果因菌株、介质与织构几何而异 (Schwibbert et al., 2024)。"),
  ("h2", "1.3 综述范围"),
- ("p", "本综述整合四条线索：(i) 激光织构金属表面的制备；(ii) LIPSS 的形成物理；(iii) 抗菌"
+ ("p", "本综述整合四条线索：(i) 激光织构金属表面的制备；(ii) LIPSS 的形成物理，包括从材料与激光参数预测结构的计算方法；(iii) 抗菌"
        "机理及文献分歧的原因；(iv) 工艺工程，包括波长可得性及其对结构周期的后果。重点放在"
        "不锈钢，以及规划、实施与报告实验所需的实用细节层面。"),
 ]
@@ -390,7 +390,39 @@ S3 = [
        "加深，直至烧蚀去除图案的速度超过其再生速度；又因每个脉冲都降低有效阈值（孵化"
        "效应），加工窗口在过程中漂移，需通过扫描策略与气氛控制来管理 (Bonse et al., "
        "2017)。简短概括：图案由光书写，结构由物质构筑。"),
- ("h2", "3.7 操作条件与开放问题"),
+ ("h2", "3.7 预测建模：从材料与激光属性到结构"),
+ ("p", "前几节解释了 LIPSS 为何形成、取向由什么锁定；还有一个互补的定量问题：给定一种材料与"
+       "一组激光参数，预期的周期——乃至最终形貌——是什么？有三类方法以逐渐增加的物理细节回答"
+       "这个问题。第一类是解析方法：Sipe 理论可以数值地演化为效率因子 η(κx, κy)——它衡量表面"
+       "粗糙度波矢 κ 把入射场耦合为空间调制能量沉积的效率；η 的极值给出被偏好的周期"
+       "（κ = λ/Λ）与取向 (Sipe et al., 1983; Bonse et al., 2005)。计算的输入包括激光波长处"
+       "的复介电常数、入射角、偏振，以及两个统计粗糙度参数（填充因子与形状因子）；在早期"
+       "实现中的一处符号错误被识别之后，修正后的表述与开源实现已经发布 (Kaczmarek et al., "
+       "2024)。一个密切相关的估计来自第 3.2 节的表面波色散：对强吸收的类金属表面，它给出的"
+       "周期略低于激光波长，并随介电常数模量的减小向 ≈0.7 λ 移动 (Bonse et al., 2017)。"),
+ ("p", "一个针对奥氏体不锈钢的示意计算能把这种相互作用具体化。以室温光学常数计算 (Karlsson "
+       "and Ribbing, 1982)，515 nm、正入射下效率因子的极值位于 κ ≈ 1.02，即预测周期 "
+       "≈504 nm（0.98 λ）——对一个强吸收的、未受扰动的表面而言，这接近波长本身。而同一波长"
+       "下 316L 上已报道的实验周期明显更短（≈385 nm，即 0.75 λ；Wang et al., 2026）。这一"
+       "差异是有信息量的：效率因子与色散估计都取决于加工过程中表面的光学状态——被电子激发、"
+       "熔化与氧化所改变——而非原始块材本身。用同一模型做的敏感性分析（图 4）表明：把 "
+       "|Re ε| 从 ≈8（515 nm 的块材钢）降到 ≈2.3、同时阻尼下降，预测周期会从 ≈0.98 λ 移到 "
+       "≈0.74 λ，在 |Re ε| ≈ 2.3 附近穿过实测值；同一区间内效率因子峰值增强一个数量级以上，"
+       "与实验中图案随累积剂量增加而锐化的现象一致。实践上的启示是双重的：正向预测周期需要把"
+       "有效光学状态作为输入；反过来，实测周期可用于约束该状态——这一推断可以与加工表面的"
+       "表面化学分析相互校验。参数敏感性是此类练习的注意事项：粗糙度因子会进入计算并可能"
+       "移动峰位约 10%，因此这类数字是趋势性估计而非精确预言。"),
+ ("p", "在解析路线之外，还有两类方法瞄准的是形貌本身而不只是周期。多物理场模拟把电磁场——在"
+       "演化表面上用时域有限差分或有限元方法求解——与电子–晶格能量传递的双温描述、以及熔化、"
+       "流动与再凝固的流体动力学或相场模型耦合起来，使浮雕形貌的逐脉冲演化乃至从沟脊向锥、柱"
+       "的转变可以在计算机中再现 (Tsibidis et al., 2012; Bonse et al., 2017)。这类模型抓住了"
+       "解析估计所排除的物理——自洽反馈、熔体动力学、多脉冲累积——代价是庞大的参数集"
+       "（随温度变化的光学与热学性质、熔体流动参数）与可观的算力。数据驱动方法则处在另一端："
+       "以实验或模拟得到的参数–形貌数据对训练，机器学习模型可以直接从加工参数预测表面形貌与"
+       "反射谱，或识别能形成高质量 LIPSS 的工艺窗口 (Na et al., 2022; Wang et al., 2022)。"
+       "这类模型不提供物理解释，但给出工艺规划所需的直接参数→结构映射；其精度随一致、完整"
+       "报告的数据集的积累而提高——这也再次印证了第 5.3 节讨论的报告规范。"),
+ ("h2", "3.8 操作条件与开放问题"),
  ("p", "实践上，LIPSS 在等于或略高于单脉冲阈值的注量下产生，需累积足够脉冲（每点几十"
        "至几百个）并保持扫描稳定；飞秒至皮秒脉冲有利于干净的沟脊，加工气氛与表面化学"
        "同时调制周期与深度 (Bonse et al., 2012; Bonse et al., 2017)。尽管干涉图像是该"
@@ -530,7 +562,7 @@ S6 = [
          "2013; Linklater et al., 2021; Outón et al., 2024; Wang et al., 2026)。"),
  ("p", "当前塑造该领域的开放问题：在富蛋白介质中从织构几何与表面能定量预测黏附与杀伤"
        "的模型；真实条件下形貌与化学的长期稳定性（灭菌、储存、磨损）；标准化、跨实验室"
-       "比对的评价方案；以及织构通量放大到器件相关面积。混合路线——激光织构结合抗菌"
+       "比对的评价方案；以及织构通量放大到器件相关面积。在物理一侧，从给定材料与激光参数出发对结构本身（周期与形貌）进行定量预测，是另一片正在开拓的开放前沿——可从解析效率因子计算、多物理场模拟与数据驱动模型三条路线推进（第 3.7 节）。混合路线——激光织构结合抗菌"
        "涂层——弥补单一机理的部分有效性 (Wang et al., 2025)，而积累的机理理解使合理的"
        "织构设计（而非经验试错）成为现实目标。"),
 ]
@@ -538,6 +570,7 @@ S6 = [
 REFERENCES = [
  "Arciola, C. R., Campoccia, D., & Montanaro, L. (2018). Implant infections: Adhesion, biofilm formation and immune evasion. Nature Reviews Microbiology, 16(7), 397–409. https://doi.org/10.1038/s41579-018-0019-y",
  "Barylyak, A., Wojnarowska-Nowak, R., Kus-Liśkiewicz, M., Krzemiński, P., Płoch, D., Cieniek, B., Bobitski, Y., & Kisała, J. (2024). Photocatalytic and antibacterial activity properties of Ti surface treated by femtosecond laser — a prospective study. Scientific Reports, 14, 20926. https://doi.org/10.1038/s41598-024-70103-4",
+ "Bonse, J., Munz, M., & Sturm, H. (2005). Structure formation on the surface of indium phosphide irradiated by femtosecond laser pulses. Journal of Applied Physics, 97(1), 013538. https://doi.org/10.1063/1.1827919",
  "Bonse, J., Krüger, J., Höhm, S., & Rosenfeld, A. (2012). Femtosecond laser-induced periodic surface structures. Journal of Laser Applications, 24(4), 042006. https://doi.org/10.2351/1.4712658",
  "Bonse, J., Höhm, S., Kirner, S. V., Rosenfeld, A., & Krüger, J. (2017). Laser-induced periodic surface structures — a scientific evergreen. IEEE Journal of Selected Topics in Quantum Electronics, 23(3), 9000615. https://doi.org/10.1109/JSTQE.2016.2614183",
  "Capella, A. G., Silva, M. M., Simões, J. G. A. B., Andrade, V. M., Riva, R., & Conceição, K. (2024). Biofilm growth on laser-induced periodic surface structures (LIPSS) of AISI 316L stainless steel. Matéria (Rio de Janeiro), 29(3), e20240288. https://doi.org/10.1590/1517-7076-RMAT-2024-0288",
@@ -555,12 +588,15 @@ REFERENCES = [
  "Ivanova, E. P., Hasan, J., Webb, H. K., Truong, V. K., Watson, G. S., Watson, J. A., Baulin, V. A., Pogodin, S., Wang, J. Y., Tobin, M. J., Löbbe, C., & Crawford, R. J. (2012). Natural bactericidal surfaces: Mechanical rupture of Pseudomonas aeruginosa cells by cicada wings. Small, 8(16), 2489–2494. https://doi.org/10.1002/smll.201200528",
  "Ivanova, E. P., Hasan, J., Webb, H. K., Gervinskas, G., Juodkazis, S., Truong, V. K., Wu, A. H., Lamb, R. N., Baulin, V. A., Watson, G. S., Watson, J. A., Mainwaring, D. E., & Crawford, R. J. (2013). Bactericidal activity of black silicon. Nature Communications, 4, 2838. https://doi.org/10.1038/ncomms3838",
  "Jenkins, J., Mantell, J., Neal, C., Gholinia, A., Verkade, P., Nobbs, A. H., & Su, B. (2020). Antibacterial effects of nanopillar surfaces are mediated by cell impedance, penetration and induction of oxidative stress. Nature Communications, 11, 1626. https://doi.org/10.1038/s41467-020-15471-x",
+ "Kaczmarek, D., Albert, T. J., Munz, M., Sturm, H., & Bonse, J. (2024). Erratum: “Structure formation on the surface of indium phosphide irradiated by femtosecond laser pulses” [J. Appl. Phys. 97, 013538 (2005)]. Journal of Applied Physics, 136(4), 049903. https://doi.org/10.1063/5.0222903",
+ "Karlsson, B., & Ribbing, C. G. (1982). Optical constants and spectral selectivity of stainless steel and its oxides. Journal of Applied Physics, 53(9), 6340–6346. https://doi.org/10.1063/1.331503",
  "Kietzig, A.-M., Hatzikiriakos, S. G., & Englezos, P. (2009). Patterned superhydrophobic metallic surfaces. Langmuir, 25(8), 4821–4827. https://doi.org/10.1021/la8037582",
  "Klevens, R. M., Edwards, J. R., Richards, C. L., Horan, T. C., Gaynes, R. P., Pollock, D. A., & Cardo, D. M. (2007). Estimating health care-associated infections and deaths in U.S. hospitals, 2002. Public Health Reports, 122(2), 160–166. https://doi.org/10.1177/003335490712200205",
  "Lazzini, G., Romoli, L., Lutey, A. H. A., & Fuso, F. (2019). Modelling the interaction between bacterial cells and laser-textured surfaces. Surface and Coatings Technology, 375, 8–14. https://doi.org/10.1016/j.surfcoat.2019.06.078",
  "Linklater, D. P., Baulin, V. A., Juodkazis, S., Crawford, R. J., Stoodley, P., & Ivanova, E. P. (2021). Mechano-bactericidal actions of nanostructured surfaces. Nature Reviews Microbiology, 19(1), 8–22. https://doi.org/10.1038/s41579-020-0414-z",
  "Lutey, A. H. A., Gemini, L., Romoli, L., Lazzini, G., Fuso, F., Faucon, M., & Kling, R. (2018). Towards laser-textured antibacterial surfaces. Scientific Reports, 8, 10112. https://doi.org/10.1038/s41598-018-28454-2",
  "Magin, C. M., Cooper, S. P., & Brennan, A. B. (2010). Non-toxic antifouling strategies. Materials Today, 13(4), 36–44. https://doi.org/10.1016/S1369-7021(10)70058-4",
+ "Na, H., Yoo, J., & Ki, H. (2022). Prediction of surface morphology and reflection spectrum of laser-induced periodic surface structures using deep learning. Journal of Manufacturing Processes, 84, 1274–1283. https://doi.org/10.1016/j.jmapro.2022.11.004",
  "Outón, J., Carbú, M., Domínguez, M., Ramírez-del-Solar, M., Alba, G., Vlahou, M., Stratakis, E., Matres, V., & Blanco, E. (2024). Size matters: How periodicity and depth of LIPSS influences E. coli adhesion on ferritic stainless steel. Applied Surface Science, 663, 160225. https://doi.org/10.1016/j.apsusc.2024.160225",
  "Peter, A., Lutey, A. H. A., Faas, S., Romoli, L., Onuseit, V., & Graf, T. (2020). Direct laser interference patterning of stainless steel by ultrashort pulses for antibacterial surfaces. Optics & Laser Technology, 123, 105954. https://doi.org/10.1016/j.optlastec.2019.105954",
  "Pogodin, S., Hasan, J., Baulin, V. A., Webb, H. K., Truong, V. K., Nguyen, S. H. P., Boshkovikj, V., Fluke, C. J., Watson, G. S., Watson, J. A., Crawford, R. J., & Ivanova, E. P. (2013). Biophysical model of bacterial cell interactions with nanopatterned cicada wing surfaces. Biophysical Journal, 104(4), 835–840. https://doi.org/10.1016/j.bpj.2012.12.046",
@@ -574,10 +610,12 @@ REFERENCES = [
  "Stiefel, P., Schmidt-Emrich, S., Maniura-Weber, K., & Ren, Q. (2015). Critical aspects of using bacterial cell viability assays with the fluorophores SYTO 9 and propidium iodide. BMC Microbiology, 15, 36. https://doi.org/10.1186/s12866-015-0376-x",
  "Stone, P. W. (2009). Economic burden of healthcare-associated infections: An American perspective. Expert Review of Pharmacoeconomics & Outcomes Research, 9(5), 417–422. https://doi.org/10.1586/erp.09.53",
  "Subbiahdoss, G., Kuijer, R., Grijpma, D. W., van der Mei, H. C., & Busscher, H. J. (2009). Microbial biofilm growth vs. tissue integration: “The race for the surface” experimentally studied. Acta Biomaterialia, 5(5), 1399–1404. https://doi.org/10.1016/j.actbio.2008.12.011",
+ "Tsibidis, G. D., Barberoglou, M., Loukakos, P. A., Stratakis, E., & Fotakis, C. (2012). Dynamics of ripple formation on silicon surfaces by ultrashort laser pulses in subablation conditions. Physical Review B, 86(11), 115316. https://doi.org/10.1103/PhysRevB.86.115316",
  "van Oss, C. J., Chaudhury, M. K., & Good, R. J. (1988). Interfacial Lifshitz-van der Waals and polar interactions in macroscopic systems. Chemical Reviews, 88(6), 927–941. https://doi.org/10.1021/cr00088a006",
  "van Oss, C. J. (1990). Surface properties of fibrinogen and fibrin. Journal of Protein Chemistry, 9(4), 487–491. https://doi.org/10.1007/BF01024625",
  "VanEpps, J. S., & Younger, J. G. (2016). Implantable device-related infection. Shock, 46(6), 597–608. https://doi.org/10.1097/SHK.0000000000000692",
  "Vorobyev, A. Y., & Guo, C. (2013). Direct femtosecond laser surface nano/microstructuring and its applications. Laser & Photonics Reviews, 7(3), 385–407. https://doi.org/10.1002/lpor.201200017",
+ "Wang, B., Wang, P., Song, J., Lam, Y. C., Song, H., Wang, Y., & Liu, S. (2022). A hybrid machine learning approach to determine the optimal processing window in femtosecond laser-induced periodic nanostructures. Journal of Materials Processing Technology, 308, 117716. https://doi.org/10.1016/j.jmatprotec.2022.117716",
  "Wang, H., & Zhang Newby, B. (2014). Applicability of the extended Derjaguin–Landau–Verwey–Overbeek theory on the adsorption of bovine serum albumin on solid surfaces. Biointerphases, 9(4), 041006. https://doi.org/10.1116/1.4904074",
  "Wang, Y., Dong, Y., Quan, Y., Wackerow, S., Abdolvand, A., Zolotovskaya, S. A., & Zhao, Q. (2025). Hybrid antibacterial surfaces: Combining laser-induced periodic surface structures with polydopamine-chitosan-silver nanoparticle nanocomposite coating. Advanced Materials Interfaces, 12(6), 2400660. https://doi.org/10.1002/admi.202400660",
  "Wang, Y., Olugbade, T. O., Zhao, Y.-Y., Dai, H., Zhang, S., Abdolvand, A., Zhao, Q., & Zolotovskaya, S. A. (2026). Geometry-driven control of bacterial adhesion and corrosion performance on LIPSS-textured 316L stainless steel. Materials & Design, 263, 115626. https://doi.org/10.1016/j.matdes.2026.115626",
@@ -654,6 +692,12 @@ FIG3_CAP = ("图 3.  织构金属表面的抗菌机理：(a) 几何抗黏附（�
             "(b) 高纵横比柱上的机械杀菌膜破裂；(c) 表面化学贡献（激光诱导氧化层与"
             "电荷状态）；(d) 蛋白条件膜——蛋白质先行吸附（Vroman 序列），向到达的"
             "细菌呈现新界面。")
+
+FIG4_CAP = ("图 4.  奥氏体不锈钢、515 nm 的示意性预测计算。(a) 用室温光学常数计算的 Sipe "
+            "效率因子图（正入射，s 偏振）：极值位于 κ ≈ 1.02，对应预测周期 ≈504 nm（0.98 λ）。"
+            "(b) 预测周期随假定表面介电常数实部的变化（虚部随序列缩放）：316L 上报道的实测 "
+            "周期 385 nm（0.75 λ；Wang et al., 2026）对应约 −2.3 的有效介电常数——即光学上被 "
+            "改性过的表面状态，而非原始合金。")
 
 # ---------------------------------------------------------------- assemble docx
 def build_docx_full():
@@ -734,9 +778,12 @@ def build_docx_full():
     emit(S2[i23p + 2:])
 
     i34 = next(i for i, b in enumerate(S3) if b[0] == 'h2' and b[1].startswith('3.4'))
+    i38 = next(i for i, b in enumerate(S3) if b[0] == 'h2' and b[1].startswith('3.8'))
     emit(S3[:i34])
     emit([('fig', 'fig2_lipss_mechanism_zh.png', FIG2_CAP)])
-    emit(S3[i34:])
+    emit(S3[i34:i38])
+    emit([('fig', 'fig4_predictive_models_zh.png', FIG4_CAP)])
+    emit(S3[i38:])
     emit(S4)
     emit([('fig', 'fig3_antibacterial_zh.png', FIG3_CAP)])
     add_table_block(doc, 3, TABLE4[0], TABLE4[1], TABLE4[2], TABLE4[3])
@@ -756,7 +803,7 @@ def build_docx_full():
 
     add_footer(doc, "激光织构金属抗菌综述 — 中文初稿")
     doc.core_properties.title = TITLE
-    doc.core_properties.comments = "中文版初稿 — 2026-10-07"
+    doc.core_properties.comments = "中文版初稿 v3 — 2026-10-07（双语、含图）"
     doc.save(DOCX_PATH)
     return doc
 
@@ -814,9 +861,12 @@ def build_md():
     emit_md([('table', 2)])
     emit_md(S2[i23p + 2:])
     i34 = next(i for i, b in enumerate(S3) if b[0] == 'h2' and b[1].startswith('3.4'))
+    i38 = next(i for i, b in enumerate(S3) if b[0] == 'h2' and b[1].startswith('3.8'))
     emit_md(S3[:i34])
     emit_md([('fig', 'fig2_lipss_mechanism_zh.png', FIG2_CAP)])
-    emit_md(S3[i34:])
+    emit_md(S3[i34:i38])
+    emit_md([('fig', 'fig4_predictive_models_zh.png', FIG4_CAP)])
+    emit_md(S3[i38:])
     emit_md(S4)
     emit_md([('fig', 'fig3_antibacterial_zh.png', FIG3_CAP)])
     emit_md([('table', 3)])
