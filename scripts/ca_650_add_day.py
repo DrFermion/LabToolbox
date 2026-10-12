@@ -5,7 +5,9 @@ Usage:
     python ca_650_add_day.py --day "Day 6" --date "16/9" --temp 24 --rh 39 \
         --json C:/path/day6.json
 
-JSON format (left/right readings per repeat, in workbook column order):
+JSON format (left/right readings per repeat, in workbook column order).
+    Single reading = both sides identical (owner's rule, 2026-10-12): pass [v, null]
+    or [v, v] -- the writer fills the same value on both sides, never a blank right cell:
     {"area1":     [[98.3, 98.4], [72.4, 74.8], [72.7, 75.3]],
      "area1-R90": [[82.2, 83.3], [71.5, 72.7], [66.2, 65.3]],
      "area2":     [[79.2, 79.3], [60.2, 62.4], [54.6, 53.7]],
@@ -84,7 +86,7 @@ def main():
             ws.cell(r, 1, day)
             ws.cell(r, 2, i + 1)
             ws.cell(r, 3, float(pair[0]))
-            ws.cell(r, 4, float(pair[1]) if pair[1] is not None else None)
+            ws.cell(r, 4, float(pair[1]) if pair[1] is not None else float(pair[0]))
             ws.cell(r, 5, round(avg(pair), 2))
         ravg = start + len(data[g])
         ws.cell(ravg, 1, day)
