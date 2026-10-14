@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""650nm LIVE/DEAD 时间历程图 (repeat 1, 双菌种, 随时间更新)。
+"""650nm LIVE/DEAD 汇总图 — 堆叠柱状图 (绿=live + 红=dead), repeat 1, 双菌种。
 数据源: <DS>/imagej_counts/<species>/livedead_raw_counts.csv (ImageJ 计数, 已几何校验)
-输出:   <DS>/imagej_counts/650nm_livedead_timecourse_repeat1.png (+ .csv)
-纵轴  : 密度 = count / 46946.10 µm² 视野 × 1e8 -> cells/cm²
-规则  : 不完整配对 (缺 g 或 r 通道) 全部排除, 不参与任何统计。
+输出:   <DS>/imagej_counts/650nm_livedead_timecourse_repeat1.png (+ summary csv)
+布局:   行 = 菌种; 列 = (a) 密度堆叠柱 cells/cm² + (b) 存活率柱 (%)
+规则:   不完整配对 (缺 g 或 r 通道) 排除; 无任何折线。
 """
 import os
 import numpy as np
@@ -11,6 +11,8 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+from matplotlib.ticker import FuncFormatter
 from scipy import stats
 
 DS = ('F:/OneDrive - University of Dundee/Svetlana Zolotovskaya (Staff) 的文件 - '
@@ -19,23 +21,24 @@ OUT = os.path.join(DS, 'imagej_counts')
 AREA = 46946.10
 K = 1e8 / AREA  # counts per field -> cells/cm2
 ALL_TIMES = ['3h', '5h', '7h', '24h']
-TIMES = ALL_TIMES
 SPECIES = [('E.coli', 'E. coli'), ('S.aureus', 'S. aureus')]
-RC = {'c': ('Control', '#616161'), '1': ('LIPSS', '#1565C0'), '2': ('Nanopillar', '#EF6C00')}
+RC = {'c': ('Control', 'Ctrl'), '1': ('LIPSS', 'LIPSS'), '2': ('Nanopillar', 'Nano')}
 REGIONS = ['c', '1', '2']
+C_LIVE, C_DEAD, C_VIAB = '#2E7D32', '#C62828', '#00796B'
 
 rows = []
 excl = []
+data = {}
 for sp_dir, sp_label in SPECIES:
     raw = pd.read_csv(os.path.join(OUT, sp_dir, 'livedead_raw_counts.csv'))
     raw['g_image'] = raw['g_image'].fillna('')
     raw['r_image'] = raw['r_image'].fillna('')
     bad = raw[(raw.g_image == '') | (raw.r_image == '')]
     for _, b in bad.iterrows():
-        excl.append('%s %s %s/%s #%s (缺%s通道)' % (sp_label, b['repeat'], b['time'], b['area'], b['num'],
-                                                   'g' if b['g_image'] == '' else 'r'))
+        excl.append('%s %s %s/%s #%s' % (sp_label, b['repeat'], b['time'], b['area'], b['num']))
     ok = raw[(raw.g_image != '') & (raw.r_image != '')].dropna(subset=['live', 'dead']).copy()
-    for t in TIMES:
+    data[sp_label] = ok
+    for t in ALL_TIMES:
         for reg in REGIONS:
             g = ok[(ok.time.astype(str) == t) & (ok.area.astype(str) == reg)]
             if len(g) == 0:
@@ -52,77 +55,97 @@ S = pd.DataFrame(rows)
 S.to_csv(os.path.join(OUT, '650nm_livedead_timecourse_summary.csv'), index=False, encoding='utf-8-sig')
 print(S.round(1).to_string(index=False))
 print()
-print('排除的不完整配对:')
-for e in excl:
-    print(' ', e)
-print()
+if excl:
+    print('排除的不完整配对:', '; '.join(excl))
+else:
+    print('无不完整配对')
 
-# per species-time ANOVA (viability across regions)
-for sp_dir, sp_label in SPECIES:
-    raw = pd.read_csv(os.path.join(OUT, sp_dir, 'livedead_raw_counts.csv'))
-    raw['g_image'] = raw['g_image'].fillna('')
-    raw['r_image'] = raw['r_image'].fillna('')
-    ok = raw[(raw.g_image != '') & (raw.r_image != '')].dropna(subset=['live', 'dead'])
-    for t in TIMES:
+pvals = {}
+for sp_label, ok in data.items():
+    for t in ALL_TIMES:
         sub = ok[ok.time.astype(str) == t]
         if sub.empty or sub.area.nunique() < 3:
             continue
         grp = [sub[sub.area.astype(str) == reg]['live'] / (sub[sub.area.astype(str) == reg]['live']
                + sub[sub.area.astype(str) == reg]['dead']) * 100 for reg in REGIONS]
         F, p = stats.f_oneway(*grp)
+        pvals[(sp_label, t)] = p
         print('%s @ %s ANOVA viability: F=%.2f p=%.4f' % (sp_label, t, F, p))
 
-# ---- figure ----
-fig, axes = plt.subplots(2, 2, figsize=(11.5, 8.6), dpi=200)
-xp = {t: i for i, t in enumerate(TIMES)}
+# ---- figure: stacked bars only, no lines ----
+fig, axes = plt.subplots(2, 2, figsize=(11.8, 8.8), dpi=200)
 for i, (sp_dir, sp_label) in enumerate(SPECIES):
     sub = S[S.species == sp_label]
-    present = sorted(set(sub.time), key=lambda t: TIMES.index(t))
+    times = [t for t in ALL_TIMES if t in set(sub.time)]
+    xs = {}
+    for ti, t in enumerate(times):
+        for ri, reg in enumerate(REGIONS):
+            xs[(t, reg)] = ti * 4 + ri
+    groups = [np.mean([xs[(t, reg)] for reg in REGIONS]) for t in times]
+
     ax = axes[i, 0]
-    for reg in REGIONS:
-        g = sub[sub.region == reg].sort_values('time', key=lambda c: c.map(xp))
+    ymax = (sub['live_cm2'] + sub['dead_cm2']).max()
+    for (t, reg), x in xs.items():
+        g = sub[(sub.time == t) & (sub.region == reg)]
         if g.empty:
             continue
-        name, col = RC[reg]
-        ax.errorbar([xp[t] for t in g.time], g['viability_mean'], yerr=g['viability_sd'],
-                    marker='o', ms=6, lw=2, capsize=4, color=col, label='%s (pooled: %s)' % (
-                        name, ', '.join('%.1f%%' % v for v in g['viability_pooled'])))
-    ax.set_xticks(range(len(TIMES)))
-    ax.set_xticklabels(TIMES)
-    ax.set_ylim(0, 100)
-    ax.set_xlim(-0.3, len(TIMES) - 0.7)
-    ax.set_ylabel('Viability (%)')
-    ax.set_title('(%s) %s — viability vs time' % ('ac'[i], sp_label), fontsize=10.5)
-    ax.legend(frameon=False, fontsize=8)
-    ax.grid(alpha=0.25)
+        lv = g['live_cm2'].iloc[0]
+        dd = g['dead_cm2'].iloc[0]
+        ax.bar(x, lv, 0.8, color=C_LIVE, edgecolor='black', linewidth=0.5)
+        ax.bar(x, dd, 0.8, bottom=lv, color=C_DEAD, edgecolor='black', linewidth=0.5)
+        ax.text(x, lv + dd + ymax * 0.012, '%.0f%%' % g['viability_pooled'].iloc[0],
+                ha='center', fontsize=7.5, color='#555555')
+    ax.set_ylim(0, ymax * 1.18)
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, p: '{:,.0f}'.format(v)))
+    ax.set_xticks(list(xs.values()))
+    ax.set_xticklabels([RC[reg][1] for (t, reg) in xs], fontsize=8)
+    for t, gc in zip(times, groups):
+        ax.text(gc, -0.14, t, transform=ax.get_xaxis_transform(),
+                ha='center', fontsize=10, fontweight='bold')
+    ax.set_xlim(min(xs.values()) - 1, max(xs.values()) + 1)
+    ax.set_ylabel('Cell density (cells/cm²)', fontsize=9.5)
+    ax.set_title('(%s) %s — live + dead density (stacked)' % ('ac'[i], sp_label), fontsize=10.5)
+    ax.legend(handles=[Patch(facecolor=C_LIVE, edgecolor='black', label='Live (green channel)'),
+                       Patch(facecolor=C_DEAD, edgecolor='black', label='Dead (red channel)')],
+              frameon=False, fontsize=9, loc='upper right')
+    ax.grid(axis='y', alpha=0.25)
+    miss = [t for t in ALL_TIMES if t not in times]
+    if miss:
+        ax.text(0.995, 0.02, 'repeat 1 · awaiting ' + ' / '.join(miss), transform=ax.transAxes,
+                ha='right', fontsize=7.5, color='#888888', style='italic')
 
     ax = axes[i, 1]
-    for reg in REGIONS:
-        g = sub[sub.region == reg].sort_values('time', key=lambda c: c.map(xp))
+    for (t, reg), x in xs.items():
+        g = sub[(sub.time == t) & (sub.region == reg)]
         if g.empty:
             continue
-        name, col = RC[reg]
-        ax.errorbar([xp[t] for t in g.time], g['live_cm2'], yerr=g['live_cm2_sd'],
-                    marker='o', ms=6, lw=2, capsize=4, color=col, label=name + ' (live)')
-        ax.errorbar([xp[t] for t in g.time], g['dead_cm2'], yerr=g['dead_cm2_sd'],
-                    marker='s', ms=4.5, lw=1.2, ls='--', capsize=3, color=col, alpha=0.75,
-                    label=name + ' (dead)')
-    ax.yaxis.set_major_formatter(lambda v, pos: '{:,.0f}'.format(v))
-    ax.set_xticks(range(len(TIMES)))
-    ax.set_xticklabels(TIMES)
-    ax.set_xlim(-0.3, len(TIMES) - 0.7)
-    ax.set_ylabel('Cell density (cells/cm²)')
-    ax.set_title('(%s) %s — density vs time (solid = live, dashed = dead)' % ('bd'[i], sp_label), fontsize=10.5)
-    ax.legend(frameon=False, fontsize=7.5, ncol=2)
-    ax.grid(alpha=0.25)
+        vm = g['viability_mean'].iloc[0]
+        vs = g['viability_sd'].iloc[0]
+        ax.bar(x, vm, 0.8, yerr=vs, capsize=3, color=C_VIAB, edgecolor='black', linewidth=0.5)
+        ax.text(x, vm + vs + 2.5, '%.1f%%' % g['viability_pooled'].iloc[0],
+                ha='center', fontsize=7.5, color=C_VIAB)
+    ax.set_ylim(0, 100)
+    ax.set_xticks(list(xs.values()))
+    ax.set_xticklabels([RC[reg][1] for (t, reg) in xs], fontsize=8)
+    for t, gc in zip(times, groups):
+        ax.text(gc, -0.14, t, transform=ax.get_xaxis_transform(),
+                ha='center', fontsize=10, fontweight='bold')
+        if (sp_label, t) in pvals:
+            p = pvals[(sp_label, t)]
+            lab = 'p < 0.001' if p < 0.001 else ('ns' if p >= 0.05 else 'p = %.3f' % p)
+            ax.text(gc, 94, lab, ha='center', fontsize=8, color='#333333')
+    ax.set_xlim(min(xs.values()) - 1, max(xs.values()) + 1)
+    ax.set_ylabel('Viability (%)', fontsize=9.5)
+    ax.set_title('(%s) %s — viability (labels = pooled %%)' % ('bd'[i], sp_label), fontsize=10.5)
+    ax.grid(axis='y', alpha=0.25)
 
-fig.suptitle('650 nm sample — LIVE/DEAD time course, repeat 1 (preliminary; error bars = SD over fields; '
-             'density = cells/cm²)', fontsize=11)
+fig.suptitle('650 nm sample — LIVE/DEAD, repeat 1  (preliminary; n = 5 fields per bar; '
+             'density = cells/cm²; green = live, red = dead)', fontsize=11)
 note = 'ImageJ 1.54 (bg mode + 40, size 3-500 px) · 40× field area 46 946 µm²'
 if excl:
     note += ' · excluded (incomplete pairs): ' + '; '.join(excl)
 fig.text(0.99, 0.01, note, ha='right', fontsize=7, color='#666666', style='italic')
-fig.tight_layout(rect=(0, 0.03, 1, 0.95))
+fig.tight_layout(rect=(0, 0.03, 1, 0.94))
 figp = os.path.join(OUT, '650nm_livedead_timecourse_repeat1.png')
 fig.savefig(figp)
 plt.close(fig)
