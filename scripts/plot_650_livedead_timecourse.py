@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from matplotlib.ticker import FuncFormatter
 from scipy import stats
+from PIL import Image
 
 DS = ('F:/OneDrive - University of Dundee/Svetlana Zolotovskaya (Staff) 的文件 - '
       'Ruinong Pan_Antibacterial Surfaces/Live_Dead Bacteria Test/650nm-20261014')
@@ -141,10 +142,43 @@ for i, (sp_dir, sp_label) in enumerate(SPECIES):
 
 fig.suptitle('650 nm sample — LIVE/DEAD, repeat 1  (preliminary; n = 5 fields per bar; '
              'density = cells/cm²; green = live, red = dead)', fontsize=11)
+# ---- exposure scan (from tif metadata) ----
+exp_rows = []
+for sp_dir, sp_label in SPECIES:
+    for t in ALL_TIMES:
+        d = os.path.join(DS, sp_dir, 'repeat 1', t)
+        if not os.path.isdir(d):
+            continue
+        for f in sorted(os.listdir(d)):
+            if not f.lower().endswith('.tif'):
+                continue
+            desc = str(Image.open(os.path.join(d, f)).tag_v2.get(270, '')).splitlines()
+            e = desc[0].strip().replace('Exposure: 000 : 00 : 00 . ', '').split(' :')[0] if desc else '?'
+            exp_rows.append(dict(species=sp_label, time=t,
+                                 area=RC.get(f.split('-')[0], (f.split('-')[0],))[0],
+                                 file=f, exposure_ms=e))
+EXP = pd.DataFrame(exp_rows)
+EXP.to_csv(os.path.join(OUT, 'exposure_log.csv'), index=False, encoding='utf-8-sig')
+exp_notes = []
+for (sp_label, t), g in EXP.groupby(['species', 'time']):
+    vals = g['exposure_ms'].astype(int)
+    mode = int(vals.mode().iloc[0])
+    for area, ga in g.groupby('area'):
+        vv = ga['exposure_ms'].astype(int)
+        dev = sorted(set(vv[vv != mode]))
+        if not dev:
+            continue
+        frac = float(vv.isin(dev).mean())
+        exp_notes.append('%s %s %s %s ms%s' % (sp_label, t, area, '/'.join(str(x) for x in dev),
+                                               '' if frac == 1 else ' (part)'))
+print('exposure exceptions:', '; '.join(exp_notes) if exp_notes else 'none')
+
 note = 'ImageJ 1.54 (bg mode + 40, size 3-500 px) · 40× field area 46 946 µm²'
+if exp_notes:
+    note += ' · exposure: default 250-300 ms; ' + '; '.join(exp_notes)
 if excl:
     note += ' · excluded (incomplete pairs): ' + '; '.join(excl)
-fig.text(0.99, 0.01, note, ha='right', fontsize=7, color='#666666', style='italic')
+fig.text(0.99, 0.01, note, ha='right', fontsize=6.5, color='#666666', style='italic')
 fig.tight_layout(rect=(0, 0.03, 1, 0.94))
 figp = os.path.join(OUT, '650nm_livedead_timecourse_repeat1.png')
 fig.savefig(figp)
