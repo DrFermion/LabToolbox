@@ -46,6 +46,18 @@ for fp in [r"C:\Windows\Fonts\msyh.ttc", r"C:\Windows\Fonts\simhei.ttf"]:
         break
 
 
+# ImageJ 安装目录候选 (2026-10: F: 已搬到 E:; 依次探测, 兼容再次搬家)
+IMAGEJ_CANDIDATES = [r"E:/ImageJ/ImageJ", r"F:/ImageJ/ImageJ", r"C:/Users/PC/Downloads/ImageJ"]
+
+
+def find_imagej_dir():
+    for c in IMAGEJ_CANDIDATES:
+        if (os.path.exists(os.path.join(c, "ij.jar"))
+                and os.path.exists(os.path.join(c, "jre", "bin", "java.exe"))):
+            return c
+    return IMAGEJ_CANDIDATES[0]
+
+
 # ==================== 计数引擎 (整合自 counter2.2.0) ====================
 class ImageJEngine:
     """ImageJ 计数引擎 (开源工具后端, 替代/对照 OpenCV 引擎)
@@ -55,15 +67,15 @@ class ImageJEngine:
     引擎: 经典 ImageJ 1.54 headless (-batch), 目录级批处理 + 缓存。
     接口与 CellCounterEngine 对齐: count_live_dead(path) -> {'green','red'}
 
-    注意: 依赖 F:/ImageJ (经典 ImageJ 1.54) 已安装; 宏文件需为纯 ASCII,
+    注意: 依赖经典 ImageJ 1.54 (默认 E:/ImageJ/ImageJ, 自动探测候选路径) 已安装; 宏文件需为纯 ASCII,
     中文路径走 UTF-8 参数文件, Image-Pro 假校准会自动清除。
     """
 
-    def __init__(self, imagej_dir=r"F:/ImageJ/ImageJ", min_size=3, max_size=500,
+    def __init__(self, imagej_dir=None, min_size=3, max_size=500,
                  bg_offset=40, qc_dir=None):
         """qc_dir: 可选 QC 输出根目录 — 每张图存 <stem>_qc.png (每个被计数粒子画
         品红圈+编号), 用于故障排查 (数 0/漏数/多圈时看圈位置). None = 不输出."""
-        self.imagej_dir = imagej_dir
+        self.imagej_dir = imagej_dir or find_imagej_dir()
         self.min_size = int(min_size)
         self.max_size = int(max_size)
         self.bg_offset = int(bg_offset)
@@ -102,7 +114,7 @@ class ImageJEngine:
         if not os.path.exists(macro):
             raise FileNotFoundError(
                 f"ImageJ 宏不存在: {macro} — 需先部署 count_livedead.ijm "
-                f"(见 F:/ImageJ 或 labtoolbox 技能 livedead-imagej-pipeline)")
+                f"(见 labtoolbox 技能 livedead-imagej-pipeline; 候选 {IMAGEJ_CANDIDATES})")
         java = os.path.join(self.imagej_dir, "jre", "bin", "java.exe")
         ij_jar = os.path.join(self.imagej_dir, "ij.jar")
         if not os.path.exists(java) or not os.path.exists(ij_jar):
@@ -300,7 +312,7 @@ class LiveDeadCellCounter:
             raise ValueError(f"输入不是文件夹: {root}")
         repeats = sorted(
             [d for d in os.listdir(root)
-             if os.path.isdir(os.path.join(root, d)) and re.match(r"^repeat\d+$", d, re.I)],
+             if os.path.isdir(os.path.join(root, d)) and re.match(r"^repeat\s*\d+$", d, re.I)],
             key=lambda d: int(re.search(r"\d+", d).group()))
         if len(repeats) < 3:
             warnings.warn(f"只找到 {len(repeats)} 个 repeat 文件夹 (建议 ≥3), 继续处理")
@@ -552,7 +564,7 @@ def run(folder, output_dir="output", area_um2=None, backend="imagej",
     """一键 LIVE/DEAD 细胞计数分析
 
     backend: "imagej" (默认, 开源 ImageJ 引擎 — 自适应阈值+Analyze Particles,
-             经典 ImageJ 1.54, 装于 F:/ImageJ) / "opencv" (旧的 Python 分水岭引擎,
+             经典 ImageJ 1.54, 装于 E:/ImageJ/ImageJ) / "opencv" (旧的 Python 分水岭引擎,
              仅保留作故障排查/回归对照, 方法学上已被 ImageJ 取代)
     skip_repeats: 跳过无效 repeat (如 ("repeat2",))
     """
