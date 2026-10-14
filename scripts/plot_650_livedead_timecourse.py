@@ -25,6 +25,9 @@ ALL_TIMES = ['3h', '5h', '7h', '24h']
 SPECIES = [('E.coli', 'E. coli'), ('S.aureus', 'S. aureus')]
 RC = {'c': ('Control', 'Ctrl'), '1': ('LIPSS', 'LIPSS'), '2': ('Nanopillar', 'Nano')}
 REGIONS = ['c', '1', '2']
+# QC 存疑数据点: 图上百分数后加 ' ?', 脚注解释
+QC_FLAGS = {('S. aureus', '5h', 'Nanopillar'):
+            'S. aureus 5 h Nanopillar: green channel near-empty (possible acquisition issue)'}
 C_LIVE, C_DEAD, C_VIAB = '#2E7D32', '#C62828', '#00796B'
 
 rows = []
@@ -94,8 +97,10 @@ for i, (sp_dir, sp_label) in enumerate(SPECIES):
         dd = g['dead_cm2'].iloc[0]
         ax.bar(x, lv, 0.8, color=C_LIVE, edgecolor='black', linewidth=0.5)
         ax.bar(x, dd, 0.8, bottom=lv, color=C_DEAD, edgecolor='black', linewidth=0.5)
-        ax.text(x, lv + dd + ymax * 0.012, '%.0f%%' % g['viability_pooled'].iloc[0],
-                ha='center', fontsize=7.5, color='#555555')
+        lab = '%.0f%%' % g['viability_pooled'].iloc[0]
+        if (sp_label, t, RC[reg][0]) in QC_FLAGS:
+            lab += ' ?'
+        ax.text(x, lv + dd + ymax * 0.012, lab, ha='center', fontsize=7.5, color='#555555')
     ax.set_ylim(0, ymax * 1.18)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, p: '{:,.0f}'.format(v)))
     ax.set_xticks(list(xs.values()))
@@ -123,8 +128,10 @@ for i, (sp_dir, sp_label) in enumerate(SPECIES):
         vm = g['viability_mean'].iloc[0]
         vs = g['viability_sd'].iloc[0]
         ax.bar(x, vm, 0.8, yerr=vs, capsize=3, color=C_VIAB, edgecolor='black', linewidth=0.5)
-        ax.text(x, vm + vs + 2.5, '%.1f%%' % g['viability_pooled'].iloc[0],
-                ha='center', fontsize=7.5, color=C_VIAB)
+        lab = '%.1f%%' % g['viability_pooled'].iloc[0]
+        if (sp_label, t, RC[reg][0]) in QC_FLAGS:
+            lab += ' ?'
+        ax.text(x, vm + vs + 2.5, lab, ha='center', fontsize=7.5, color=C_VIAB)
     ax.set_ylim(0, 100)
     ax.set_xticks(list(xs.values()))
     ax.set_xticklabels([RC[reg][1] for (t, reg) in xs], fontsize=8)
@@ -178,6 +185,8 @@ if exp_notes:
     note += ' · exposure: default 250-300 ms; ' + '; '.join(exp_notes)
 if excl:
     note += ' · excluded (incomplete pairs): ' + '; '.join(excl)
+if QC_FLAGS:
+    note += ' · ? = QC flag: ' + '; '.join(sorted(set(QC_FLAGS.values())))
 fig.text(0.99, 0.01, note, ha='right', fontsize=6.5, color='#666666', style='italic')
 fig.tight_layout(rect=(0, 0.03, 1, 0.94))
 figp = os.path.join(OUT, '650nm_livedead_timecourse_repeat1.png')
