@@ -190,6 +190,14 @@ for line in [
     'c-g2 +75. Because E. coli fields contain only 30–350 objects, a burst of specks in one field '
     'moves the group mean appreciably; in S. aureus (800–3,300 objects per field) the same effect is '
     'diluted to a fraction of a percent.',
+    'Where the added objects sit (QC): in the E. coli fields they are not randomly scattered. Of the '
+    '120 E. coli images, 70 contain at least one 1–2 px object, and within those images a median of '
+    '50 % of them (median 74–78 % at 3, 5 and 7 h) lie within ±2 px of one single image row — they '
+    'form a one-pixel horizontal line across the field. The QC sheets (qc_sheets/) show this directly '
+    'as a chain of magenta boxes. In S. aureus the same objects are distributed over the field '
+    '(median 11 % on the modal row). The E. coli viability shifts described below are therefore '
+    'driven by a line/scan artefact, not by unresolved bacteria — a further reason to keep the 3 px '
+    'floor, and a reason to check the camera/scan for a defective row before the next session.',
 ]:
     doc.add_paragraph(line)
 
@@ -236,6 +244,10 @@ for line in [
     'Figures: 650nm_livedead_timecourse_repeat1.png (panel set regenerated at 0–500 px), '
     '650nm_minpx_viability_compare.png, 650nm_minpx_sensitivity.png; anti-adhesion figure '
     'regenerated as 650nm_livedead_antiadhesion_repeat1.png.',
+    'QC images: imagej_counts_no_minpx/<species>/qc/<time>/ — 240 ImageJ overlays at 0–500 px (one '
+    'per image, blue circles + numbering); qc_sheets/ — two diagnostic sheets in which blue circles '
+    'mark objects already counted at 3 px and magenta boxes the newly added 1–2 px objects, with a '
+    '×3 zoom of the densest region (yellow box).',
     'Scripts: E:\\LabToolbox\\scripts\\recount_650_minpx_imagej.py (counting), '
     'make_650_minpx_outputs.py (tables and figures), build_650_minpx_report.py (this report); '
     'macro scripts/imagej/count_livedead.ijm (now takes optional size limits, defaults 3/500). '
