@@ -130,6 +130,8 @@ class ImageJEngine:
             f.write(directory.replace("\\", "/") + "\n")
             f.write(out_csv.replace("\\", "/") + "\n")
             f.write((qc_sub.replace("\\", "/") if qc_sub else "") + "\n")
+            f.write(str(self.min_size) + "\n")   # macro line 4: min particle size (px)
+            f.write(str(self.max_size) + "\n")   # macro line 5: max particle size (px)
         env = dict(os.environ, JAVA_TOOL_OPTIONS="-Dfile.encoding=UTF-8")
         cmd = [java, "-cp", ij_jar, "ij.ImageJ", "-batch", macro, args_path]
         try:

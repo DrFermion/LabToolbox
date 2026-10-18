@@ -18,7 +18,8 @@ from PIL import Image
 
 DS = ('F:/OneDrive - University of Dundee/Svetlana Zolotovskaya (Staff) 的文件 - '
       'Ruinong Pan_Antibacterial Surfaces/Live_Dead Bacteria Test/650nm-20261014')
-OUT = os.path.join(DS, 'imagej_counts')
+OUT = os.environ.get('LIVEDEAD_650_OUT') or os.path.join(DS, 'imagej_counts')
+SIZE_LABEL = os.environ.get('LIVEDEAD_650_SIZE_LABEL', '3-500')
 AREA = 46946.10
 K = 1e8 / AREA  # counts per field -> cells/cm2
 ALL_TIMES = ['3h', '5h', '7h', '24h']
@@ -180,7 +181,7 @@ for (sp_label, t), g in EXP.groupby(['species', 'time']):
                                                '' if frac == 1 else ' (part)'))
 print('exposure exceptions:', '; '.join(exp_notes) if exp_notes else 'none')
 
-note = 'ImageJ 1.54 (bg mode + 40, size 3-500 px) · 40× field area 46 946 µm²'
+note = 'ImageJ 1.54 (bg mode + 40, size %s px) · 40× field area 46 946 µm²' % SIZE_LABEL
 if exp_notes:
     note += ' · exposure: default 250-300 ms; ' + '; '.join(exp_notes)
 if excl:

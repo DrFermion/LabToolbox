@@ -1,8 +1,9 @@
 // count_livedead.ijm - LIVE/DEAD adaptive-threshold counting (ImageJ)
 // Usage (headless): fiji-windows-x64.exe --headless -macro count_livedead.ijm "<argfile.txt>"
-// argfile (UTF-8, 3 lines): line1=inputDir  line2=outputCSV  line3=qcDir (may be empty)
+// argfile (UTF-8, 5 lines): line1=inputDir  line2=outputCSV  line3=qcDir (may be empty)
+//   line4=min particle size px (optional, default 3)  line5=max particle size px (optional, default 500)
 //   Chinese paths OK in argfile, NOT on CLI
-// Method == LabToolbox Python pipeline: bg-mode+40 threshold -> size filter 3-500 px
+// Method == LabToolbox Python pipeline: bg-mode+40 threshold -> size filter 3-500 px (default)
 // Channel-trap rule: named channel (g->green, r->red) with max<30 falls back to brightest channel
 // QC mode: when qcDir non-empty, each counted image is saved as <stem>_qc.png with every
 //   counted particle circled (magenta) and numbered (white), for troubleshooting.
@@ -18,6 +19,17 @@ qcDir = "";
 if (lines.length >= 3) {
   qcDir = replace(lines[2], "\r", "");
   if (endsWith(qcDir, "\r")) qcDir = substring(qcDir, 0, lengthOf(qcDir) - 1);
+}
+// optional particle-size limits (lines 4/5); defaults keep the historical 3-500 px
+minPx = 3;
+maxPx = 500;
+if (lines.length >= 4) {
+  v4 = trim(replace(lines[3], "\r", ""));
+  if (lengthOf(v4) > 0) minPx = parseInt(v4);
+}
+if (lines.length >= 5) {
+  v5 = trim(replace(lines[4], "\r", ""));
+  if (lengthOf(v5) > 0) maxPx = parseInt(v5);
 }
 if (!endsWith(dir, "/") && !endsWith(dir, "\\")) dir = dir + "/";
 if (lengthOf(qcDir) > 0 && !endsWith(qcDir, "/") && !endsWith(qcDir, "\\")) qcDir = qcDir + "/";
@@ -78,7 +90,7 @@ for (i = 0; i < list.length; i++) {
   th = bg + 40;
   setThreshold(th, 255);
   run("Convert to Mask");
-  run("Analyze Particles...", "size=3-500 show=Nothing add");
+  run("Analyze Particles...", "size=" + minPx + "-" + maxPx + " show=Nothing add");
   cnt = nResults;
   rc = roiManager("count");
   File.append(f + "," + chanUsed + "," + bg + "," + th + "," + cnt + "," + rc, out);

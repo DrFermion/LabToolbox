@@ -25,7 +25,8 @@ from scipy import stats
 
 DS = ('F:/OneDrive - University of Dundee/Svetlana Zolotovskaya (Staff) 的文件 - '
       'Ruinong Pan_Antibacterial Surfaces/Live_Dead Bacteria Test/650nm-20261014')
-IC = os.path.join(DS, 'imagej_counts')
+IC = os.environ.get('LIVEDEAD_650_OUT') or os.path.join(DS, 'imagej_counts')
+SIZE_LABEL = os.environ.get('LIVEDEAD_650_SIZE_LABEL', '3\u2013500')
 MIRROR = 'E:/LabToolbox/output/livedead_650nm_20261014'
 PERSONAL = ('F:/OneDrive - University of Dundee/Ruinong_Pan_Personal/'
             '650nm_LIVE-DEAD_repeat1_20261015')
@@ -165,7 +166,7 @@ for i, (sp_dir, sp_label) in enumerate(SPECIES):
 fig.suptitle('650 nm sample \u2014 anti-adhesion vs Control, repeat 1  (preliminary; '
              'positive = fewer cells than control; negative = apparent pro-adhesion)',
              fontsize=11)
-note = ('ImageJ 1.54 (bg mode + 40, size 3\u2013500 px) \u00b7 40\u00d7 field area 46 946 \u00b5m\u00b2 \u00b7 '
+note = ('ImageJ 1.54 (bg mode + 40, size ' + SIZE_LABEL + ' px) \u00b7 40\u00d7 field area 46 946 \u00b5m\u00b2 \u00b7 '
         'error bars = propagated SD of the ratio (delta method, both groups) \u00b7 '
         'asterisks: Welch t-test control vs surface per time point (uncorrected): '
         '* p<0.05, ** p<0.01, *** p<0.001')
@@ -182,6 +183,9 @@ plt.close(fig)
 print('figure:', figp, os.path.getsize(figp), 'bytes')
 
 # ---------------- distribute ----------------
+if os.environ.get('LIVEDEAD_650_NO_DISTRIBUTE'):
+    print('distribution skipped (LIVEDEAD_650_NO_DISTRIBUTE)')
+    raise SystemExit(0)
 os.makedirs(PERSONAL, exist_ok=True)
 os.makedirs(MIRROR, exist_ok=True)
 for src in (figp, csv_path):
