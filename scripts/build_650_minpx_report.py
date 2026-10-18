@@ -34,7 +34,11 @@ FIGS = [('650nm_livedead_timecourse_repeat1.png',
          '≥ 1 percentage point are annotated.'),
         ('650nm_minpx_sensitivity.png',
          'Figure 3. Viability as a function of the minimum particle size (0/2/3/5/10/20 px; the '
-         '500 px upper limit is unchanged). Thick lines = the three groups that move most.')]
+         '500 px upper limit is unchanged). Thick lines = the three groups that move most.'),
+        ('650nm_livedead_antiadhesion_repeat1.png',
+         'Figure 4. Anti-adhesion vs the untreated control at 0–500 px — left column live cells, '
+         'right column total cells (live + dead). Positive = fewer cells on the textured area than '
+         'on the control; asterisks = Welch t-test per timepoint (uncorrected); hatched = QC-flagged.')]
 
 CMP = pd.read_csv(os.path.join(OUT, 'compare_3-500_vs_min0.csv'), encoding='utf-8-sig')
 ANV = pd.read_csv(os.path.join(OUT, 'survival_anova_old_vs_new.csv'), encoding='utf-8-sig')

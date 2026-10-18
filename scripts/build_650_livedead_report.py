@@ -22,6 +22,7 @@ PERSONAL = ('F:/OneDrive - University of Dundee/Ruinong_Pan_Personal/'
 MIRROR = 'E:/LabToolbox/output/livedead_650nm_20261014'
 SCRATCH = 'C:/Users/PC/AppData/Local/hermes/cache/scratch'
 FIG = os.path.join(IC, '650nm_livedead_timecourse_repeat1.png')
+AAFIG = os.path.join(IC, '650nm_livedead_antiadhesion_repeat1.png')
 PREVIEW = os.path.join(IC, 'S.aureus', 'qc', 'saureus5h_channel_preview.png')
 SUMMARY = os.path.join(IC, '650nm_livedead_timecourse_summary.csv')
 EXPOSURE = os.path.join(IC, 'exposure_log.csv')
@@ -89,6 +90,9 @@ h = doc.add_heading('650 nm textured stainless steel - bacterial LIVE/DEAD summa
 p = doc.add_paragraph('Prepared 15 October 2026  ·  Dataset: Live_Dead Bacteria Test/650nm-20261014  ·  '
                       'E. coli and S. aureus  ·  timepoints 3 / 5 / 7 / 24 h  ·  n = 5 fields per condition')
 p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+pr = doc.add_paragraph('Revision 18 October 2026: anti-adhesion figure for live and total cells added '
+                       '(Section 2, Figure 2). Counts and all numbers are unchanged (3–500 px rule).')
+pr.runs[0].italic = True
 
 doc.add_heading('1. Scope and method', level=1)
 for line in [
@@ -139,12 +143,25 @@ for sp, sp_dir in SPECIES:
         c[4].text = fmt_p(anova_p(sp_dir, t))
     doc.add_paragraph()
 
+doc.add_paragraph('Figure 2. Anti-adhesion vs the untreated control, repeat 1 — left column uses live '
+                  'cells, right column uses total cells (live + dead). Positive = fewer cells on the '
+                  'textured area than on the control; negative = apparent pro-adhesion. Error bars = '
+                  'propagated SD (delta method); asterisks = Welch t-test per timepoint (uncorrected). '
+                  'Hatched bars = QC-flagged conditions (S. aureus 5 h Nanopillar).')
+doc.add_picture(AAFIG, width=Cm(16.4))
+doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
 doc.add_paragraph('Highlights:', style='Heading 2')
 for line in [
     'E. coli viability (Control / LIPSS / Nanopillar): 61/53/59 -> 54/27/59 -> 43/38/32 -> 84/74/83 %.',
     'S. aureus viability: 93/73/57 -> 77/67/flagged -> 74/61/84 -> 75/64/82 %.',
     'At 24 h, LIPSS showed the lowest viability in both organisms; between-area differences were '
-    'significant at most timepoints (p <= 0.01), except E. coli at 3 h (p = 0.054) and 7 h (ns).']:
+    'significant at most timepoints (p <= 0.01), except E. coli at 3 h (p = 0.054) and 7 h (ns).',
+    'Anti-adhesion (Figure 2): at 24 h both surfaces reduce live-cell attachment in both organisms '
+    '(E. coli LIPSS 48 %, Nanopillar 47 %; S. aureus LIPSS 21 %, Nanopillar 37 %), and the total-cell '
+    'picture is slightly weaker (E. coli 42 / 47 %; S. aureus 7 / 42 %), i.e. part of what is removed '
+    'from the surface is dead cells. At 5-7 h LIPSS is the opposite (apparent pro-adhesion, E. coli '
+    '5 h +72 % live).']:
     doc.add_paragraph(line, style='List Bullet')
 
 doc.add_heading('3. Notes, QC and limitations', level=1)
