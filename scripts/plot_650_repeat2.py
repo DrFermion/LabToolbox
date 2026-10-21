@@ -1,0 +1,491 @@
+# -*- coding: utf-8 -*-
+"""plot_650_repeat2.py — 650 nm LIVE/DEAD: repeat-2 / combined / validation figures.
+
+Figures produced (all written into --out):
+  A  650nm_livedead_repeat2.png
+     rows = species; col 1 = green/red stacked live+dead density (cells/cm2);
+     col 2 = total-cell adhesion (live+dead, cells/cm2), anti-adhesion % over the
+     treated bars, control shown as the grey bar.
+  B  650nm_livedead_combined_repeat1_repeat2.png
+     same layout, bars = mean of the repeat means, per-repeat means as markers.
+  C  650nm_livedead_validation_5h_Saureus.png
+     S. aureus 5 h: the QC coupon (repeat 1 Nanopillar / repeat 2 sample #3) vs the
+     normal Nanopillar coupon (repeat 2 sample #2) and the controls.
+
+Counting rule: ImageJ 1.54, adaptive threshold (bg mode + 40), size 3-500 px,
+40x field area 46946.10 um2 -> density = count / 46946.10 um2 * 1e8.
+
+Data model: <ic>/<species>/livedead_raw_counts.csv with columns
+    repeat,time,area,num,g_image,r_image,live,dead,total,dead_rate
+`area` codes: c = Control, 1 = LIPSS, 2 = Nanopillar, 3 = extra coupon (re-shot of a
+previously problematic Nanopillar coupon) - code 3 is kept OUT of all statistics and
+only shown in figure C (--exclude-3).
+
+Borrowed control: --borrow "S.aureus|7h" replaces a missing repeat-2 control at that
+timepoint with the repeat-1 control (marked with a dagger in the figures).
+
+Usage
+  python plot_650_repeat2.py --demo --out <dir> --exclude-3 --borrow "S.aureus|7h"
+  python plot_650_repeat2.py --ic <...>/imagej_counts_repeat2 --ic-r1 <...>/imagej_counts \
+      --out <dir> --borrow "S.aureus|7h" --exclude-3
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import textwrap
+
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+from matplotlib.ticker import FuncFormatter
+from scipy import stats
+
+AREA_UM2 = 46946.10
+K = 1e8 / AREA_UM2
+SPECIES = [('E.coli', 'E. coli'), ('S.aureus', 'S. aureus')]
+TIMES = ['3h', '5h', '7h', '24h']
+AREAS = ['c', '1', '2']
+AREA_SHORT = {'c': 'Ctrl', '1': 'LIPSS', '2': 'Nano', '3': 'Nano\nre-shot'}
+SURF_COLOR = {'c': '#9E9E9E', '1': '#1565C0', '2': '#EF6C00', '3': '#6A1B9A'}
+C_LIVE, C_DEAD = '#2E7D32', '#C62828'
+DEMO_TAG = 'TEMPLATE - layout preview; repeat-2 values are placeholders, NOT measurements'
+R1_DIR = ('F:/OneDrive - University of Dundee/Svetlana Zolotovskaya (Staff) 的文件 - '
+          'Ruinong Pan_Antibacterial Surfaces/Live_Dead Bacteria Test/650nm-20261014/imagej_counts')
+
+
+def load_raw(path):
+    raw = pd.read_csv(path, encoding='utf-8-sig')
+    raw['g_image'] = raw['g_image'].fillna('')
+    raw['r_image'] = raw['r_image'].fillna('')
+    raw = raw[(raw.g_image != '') & (raw.r_image != '')].dropna(subset=['live', 'dead']).copy()
+    raw['total'] = raw['live'] + raw['dead']
+    raw['area'] = raw['area'].astype(str)
+    raw['time'] = raw['time'].astype(str)
+    raw['repeat'] = raw['repeat'].astype(str)
+    return raw
+
+
+def demo_raw(rng, sp_dir):
+    base_live = {'E.coli': {'c': 120, '1': 70, '2': 85}, 'S.aureus': {'c': 190, '1': 150, '2': 175}}
+    base_dead = {'E.coli': {'c': 60, '1': 95, '2': 70}, 'S.aureus': {'c': 45, '1': 130, '2': 80}}
+    rows = []
+    for t in TIMES:
+        for a in AREAS:
+            for n in range(1, 6):
+                lv = max(1, int(base_live[sp_dir][a] * rng.uniform(0.75, 1.3)))
+                dd = max(1, int(base_dead[sp_dir][a] * rng.uniform(0.75, 1.3)))
+                rows.append(dict(repeat='repeat 2', time=t, area=a, num=n,
+                                 g_image='%s-g%d.tif' % (a, n), r_image='%s-r%d.tif' % (a, n),
+                                 live=lv, dead=dd))
+        if sp_dir == 'S.aureus' and t == '5h':
+            for n in range(1, 6):
+                rows.append(dict(repeat='repeat 2', time=t, area='3', num=n,
+                                 g_image='3-g%d.tif' % n, r_image='3-r%d.tif' % n,
+                                 live=int(rng.integers(0, 6)), dead=int(rng.integers(1600, 1900))))
+    df = pd.DataFrame(rows)
+    df['total'] = df['live'] + df['dead']
+    return df
+
+
+def aa_with_sd(ctrl, trat):
+    mc, mt = ctrl.mean(), trat.mean()
+    sc, st = ctrl.std(ddof=1), trat.std(ddof=1)
+    aa = (mc - mt) / mc * 100.0
+    rel = np.sqrt((sc / np.sqrt(len(ctrl)) / mc) ** 2 + (st / np.sqrt(len(trat)) / mt) ** 2)
+    return aa, 100.0 * (mt / mc) * rel
+
+
+def group_stats(raw, times, areas=AREAS):
+    out = []
+    for t in times:
+        for a in areas:
+            g = raw[(raw.time == t) & (raw.area == a)]
+            if len(g) == 0:
+                continue
+            out.append(dict(time=t, area=a, n=len(g),
+                            live=g['live'].mean(), live_sd=g['live'].std(ddof=1),
+                            dead=g['dead'].mean(), dead_sd=g['dead'].std(ddof=1),
+                            total=g['total'].mean(), total_sd=g['total'].std(ddof=1),
+                            viability=g['live'].sum() / g['total'].sum() * 100,
+                            live_cm2=g['live'].mean() * K, dead_cm2=g['dead'].mean() * K,
+                            total_cm2=g['total'].mean() * K,
+                            total_cm2_sd=g['total'].std(ddof=1) * K))
+    return pd.DataFrame(out)
+
+
+def surface_aa(raw, t, area):
+    c = raw[(raw.time == t) & (raw.area == 'c')]
+    s = raw[(raw.time == t) & (raw.area == area)]
+    if len(c) < 2 or len(s) < 2:
+        return None
+    d = {}
+    d['aa_live'], d['aa_live_sd'] = aa_with_sd(c['live'].astype(float), s['live'].astype(float))
+    d['aa_total'], d['aa_total_sd'] = aa_with_sd(c['total'].astype(float), s['total'].astype(float))
+    d['p_live'] = stats.ttest_ind(c['live'], s['live'], equal_var=False).pvalue
+    d['p_total'] = stats.ttest_ind(c['total'], s['total'], equal_var=False).pvalue
+    return d
+
+
+def _xmap(times, areas):
+    xs, groups = {}, []
+    for ti, t in enumerate(times):
+        center = ti * 4.0
+        groups.append(center)
+        for ai, a in enumerate(areas):
+            xs[(t, a)] = center + (ai - (len(areas) - 1) / 2.0) * 1.05
+    return xs, groups
+
+
+def _time_labels(ax, times, xs, groups, areas, borrowed=()):
+    ax.set_xticks([xs[(t, a)] for t in times for a in areas])
+    ax.set_xticklabels([AREA_SHORT[a] for t in times for a in areas], fontsize=7.2)
+    for t, gc in zip(times, groups):
+        lbl = t + (' $\\dagger$' if t in borrowed else '')
+        ax.text(gc, -0.15, lbl, transform=ax.get_xaxis_transform(),
+                ha='center', fontsize=10.5, fontweight='bold')
+    ax.set_xlim(-1.7, (len(times) - 1) * 4.0 + 1.7)
+
+
+def panel_stacked(ax, st, times, areas, title):
+    xs, groups = _xmap(times, areas)
+    ymax = float((st['live_cm2'] + st['dead_cm2']).max())
+    for (t, a), x in xs.items():
+        g = st[(st.time == t) & (st.area == a)]
+        if g.empty:
+            continue
+        lv, dd = float(g['live_cm2'].iloc[0]), float(g['dead_cm2'].iloc[0])
+        ax.bar(x, lv, 0.9, color=C_LIVE, edgecolor='black', linewidth=0.45)
+        ax.bar(x, dd, 0.9, bottom=lv, color=C_DEAD, edgecolor='black', linewidth=0.45)
+        ax.text(x, lv + dd + ymax * 0.012, '%.0f%%' % float(g['viability'].iloc[0]),
+                ha='center', va='bottom', fontsize=6.8, color='#444444')
+    ax.set_ylim(0, ymax * 1.13)
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, p: '{:,.0f}'.format(v)))
+    _time_labels(ax, times, xs, groups, areas)
+    ax.set_ylabel('Cell density (cells/cm$^2$)', fontsize=9)
+    ax.set_title(title, fontsize=10.2)
+    ax.grid(axis='y', alpha=0.25)
+
+
+def panel_total(ax, raw, st, times, areas, title, borrowed=()):
+    xs, groups = _xmap(times, areas)
+    ymax = 0.0
+    for (t, a), x in xs.items():
+        g = st[(st.time == t) & (st.area == a)]
+        if g.empty:
+            continue
+        v = float(g['total_cm2'].iloc[0])
+        e = float(g['total_cm2_sd'].iloc[0])
+        ax.bar(x, v, 0.9, color=SURF_COLOR[a], edgecolor='black', linewidth=0.45)
+        ax.errorbar(x, v, yerr=e, fmt='none', ecolor='#333333', elinewidth=0.9, capsize=3)
+        if a != 'c':
+            aa = surface_aa(raw, t, a)
+            if aa is None:
+                lab = ''
+            elif abs(aa['aa_total']) < 0.5:
+                lab = '0%'
+            else:
+                lab = '%.0f%%' % aa['aa_total']
+            ax.text(x, v + e + ymax * 0.02, lab, ha='center', va='bottom',
+                    fontsize=7.0, color='#222222')
+        ymax = max(ymax, v + e)
+    ax.set_ylim(0, ymax * 1.15)
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, p: '{:,.0f}'.format(v)))
+    _time_labels(ax, times, xs, groups, areas, borrowed)
+    ax.set_ylabel('Total cells (live + dead), cells/cm$^2$', fontsize=9)
+    ax.set_title(title, fontsize=10.2)
+    ax.grid(axis='y', alpha=0.25)
+
+
+def figure_legend(fig, with_repeats=False, y=0.062):
+    h = [Patch(facecolor=C_LIVE, edgecolor='black', label='Live (green channel)'),
+         Patch(facecolor=C_DEAD, edgecolor='black', label='Dead (red channel)'),
+         Patch(facecolor=SURF_COLOR['c'], edgecolor='black', label='Control area'),
+         Patch(facecolor=SURF_COLOR['1'], edgecolor='black', label='LIPSS area'),
+         Patch(facecolor=SURF_COLOR['2'], edgecolor='black', label='Nanopillar area')]
+    if with_repeats:
+        h += [plt.Line2D([], [], marker='o', linestyle='none', markerfacecolor='white',
+                         markeredgecolor='black', label='repeat 1 mean'),
+              plt.Line2D([], [], marker='s', linestyle='none', markerfacecolor='white',
+                         markeredgecolor='black', label='repeat 2 mean')]
+    fig.legend(handles=h, loc='lower center', bbox_to_anchor=(0.5, y),
+               ncol=len(h), frameon=False, fontsize=8.8, handlelength=1.6, columnspacing=1.6)
+
+
+def footer(fig, text, demo, y=0.006):
+    if demo:
+        fig.patches.append(plt.Rectangle((0.0, 0.962), 1.0, 0.038, transform=fig.transFigure,
+                                         facecolor='#FFCDD2', edgecolor='#C62828', linewidth=1.0,
+                                         zorder=5, figure=fig))
+        fig.text(0.5, 0.981, DEMO_TAG, ha='center', va='center', fontsize=10,
+                 color='#B71C1C', fontweight='bold', zorder=6)
+    fig.text(0.005, y, textwrap.fill(text, 168), ha='left', va='bottom',
+             fontsize=7.1, color='#666666', style='italic')
+
+
+def combined_table(r1, r2, times, areas=AREAS):
+    st1, st2 = group_stats(r1, times, areas), group_stats(r2, times, areas)
+    rows = []
+    for t in times:
+        for ar in areas:
+            g1 = st1[(st1.time == t) & (st1.area == ar)]
+            g2 = st2[(st2.time == t) & (st2.area == ar)]
+            if g1.empty or g2.empty:
+                continue
+            rows.append(dict(time=t, area=ar, n=2,
+                             live_cm2=(g1.live_cm2.iloc[0] + g2.live_cm2.iloc[0]) / 2,
+                             dead_cm2=(g1.dead_cm2.iloc[0] + g2.dead_cm2.iloc[0]) / 2,
+                             total_cm2=(g1.total_cm2.iloc[0] + g2.total_cm2.iloc[0]) / 2,
+                             total_cm2_sd=float(np.std([g1.total_cm2.iloc[0],
+                                                        g2.total_cm2.iloc[0]], ddof=1)),
+                             viability=np.mean([g1.viability.iloc[0], g2.viability.iloc[0]]),
+                             r1_live=g1.live_cm2.iloc[0], r2_live=g2.live_cm2.iloc[0],
+                             r1_dead=g1.dead_cm2.iloc[0], r2_dead=g2.dead_cm2.iloc[0],
+                             r1_total=g1.total_cm2.iloc[0], r2_total=g2.total_cm2.iloc[0]))
+    return pd.DataFrame(rows)
+
+
+def panel_stacked_combined(ax, cd, times, title):
+    xs, groups = _xmap(times, AREAS)
+    ymax = float((cd['live_cm2'] + cd['dead_cm2']).max())
+    ymax = max(ymax, float(cd[['r1_live', 'r2_live']].max().max()),
+               float(cd[['r1_total', 'r2_total']].max().max()))
+    for (t, a), x in xs.items():
+        g = cd[(cd.time == t) & (cd.area == a)]
+        if g.empty:
+            continue
+        lv, dd = float(g['live_cm2'].iloc[0]), float(g['dead_cm2'].iloc[0])
+        ax.bar(x, lv, 0.9, color=C_LIVE, edgecolor='black', linewidth=0.45)
+        ax.bar(x, dd, 0.9, bottom=lv, color=C_DEAD, edgecolor='black', linewidth=0.45)
+        for rv, mk, dx in ((float(g.r1_live.iloc[0]), 'o', -0.21),
+                           (float(g.r2_live.iloc[0]), 's', 0.21)):
+            ax.plot(x + dx, rv, marker=mk, markersize=4.4, markerfacecolor='white',
+                    markeredgecolor='black', markeredgewidth=0.9, zorder=5)
+        ax.text(x, lv + dd + ymax * 0.012, '%.0f%%' % float(g['viability'].iloc[0]),
+                ha='center', va='bottom', fontsize=6.8, color='#444444')
+    ax.set_ylim(0, ymax * 1.13)
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, p: '{:,.0f}'.format(v)))
+    _time_labels(ax, times, xs, groups, AREAS)
+    ax.set_ylabel('Cell density (cells/cm$^2$)', fontsize=9)
+    ax.set_title(title, fontsize=10.2)
+    ax.grid(axis='y', alpha=0.25)
+
+
+def panel_total_combined(ax, cd, times, title, borrowed=()):
+    xs, groups = _xmap(times, AREAS)
+    ymax = float(cd[['r1_total', 'r2_total']].max().max())
+    for (t, a), x in xs.items():
+        g = cd[(cd.time == t) & (cd.area == a)]
+        if g.empty:
+            continue
+        v = float(g['total_cm2'].iloc[0])
+        e = float(g['total_cm2_sd'].iloc[0])
+        ax.bar(x, v, 0.9, color=SURF_COLOR[a], edgecolor='black', linewidth=0.45)
+        ax.errorbar(x, v, yerr=e, fmt='none', ecolor='#333333', elinewidth=0.9, capsize=3)
+        for rv, mk, dx in ((float(g.r1_total.iloc[0]), 'o', -0.21),
+                           (float(g.r2_total.iloc[0]), 's', 0.21)):
+            ax.plot(x + dx, rv, marker=mk, markersize=4.4, markerfacecolor='white',
+                    markeredgecolor='black', markeredgewidth=0.9, zorder=5)
+        if a != 'c':
+            c = cd[(cd.time == t) & (cd.area == 'c')]
+            if not c.empty:
+                cc = float(c['total_cm2'].iloc[0])
+                ax.text(x, v + e + ymax * 0.02, '%.0f%%' % ((cc - v) / cc * 100),
+                        ha='center', va='bottom', fontsize=7.0, color='#222222')
+        ymax = max(ymax, v + e)
+    ax.set_ylim(0, ymax * 1.15)
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, p: '{:,.0f}'.format(v)))
+    _time_labels(ax, times, xs, groups, AREAS, borrowed)
+    ax.set_ylabel('Total cells (live + dead), cells/cm$^2$', fontsize=9)
+    ax.set_title(title, fontsize=10.2)
+    ax.grid(axis='y', alpha=0.25)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--ic', default='')
+    ap.add_argument('--ic-r1', default='')
+    ap.add_argument('--out', required=True)
+    ap.add_argument('--demo', action='store_true')
+    ap.add_argument('--borrow', action='append', default=[])
+    ap.add_argument('--exclude-3', action='store_true')
+    a = ap.parse_args()
+    os.makedirs(a.out, exist_ok=True)
+    borrow = {tuple(x.split('|')) for x in a.borrow}
+
+    R2, R1 = {}, {}
+    for sp_dir, sp_label in SPECIES:
+        if a.demo:
+            R2[sp_label] = demo_raw(np.random.default_rng(abs(hash(sp_label)) % 2 ** 32), sp_dir)
+        else:
+            R2[sp_label] = load_raw(os.path.join(a.ic, sp_dir, 'livedead_raw_counts.csv'))
+        r1_dir = a.ic_r1 or (R1_DIR if a.demo else '')
+        if r1_dir:
+            R1[sp_label] = load_raw(os.path.join(r1_dir, sp_dir, 'livedead_raw_counts.csv'))
+
+    for sp_label in R2:
+        if a.exclude_3:
+            R2[sp_label] = R2[sp_label][R2[sp_label].area != '3']
+        for sp_b, t_b in borrow:
+            if sp_b.replace('.', '').replace(' ', '').lower() != \
+                    sp_label.replace('.', '').replace(' ', '').lower():
+                continue
+            miss = R2[sp_label][(R2[sp_label].time == t_b) & (R2[sp_label].area == 'c')]
+            if len(miss) or sp_label not in R1:
+                continue
+            donor = R1[sp_label][(R1[sp_label].time == t_b) & (R1[sp_label].area == 'c')].copy()
+            donor['repeat'] = 'repeat 1 (borrowed)'
+            R2[sp_label] = pd.concat([R2[sp_label], donor], ignore_index=True)
+            print('borrowed control: %s %s <- repeat 1 (%d fields)' % (sp_label, t_b, len(donor)))
+
+    suffix = '_TEMPLATE' if a.demo else ''
+    # ---------------- A. repeat-2 figure ----------------
+    fig, axes = plt.subplots(2, 2, figsize=(14.2, 9.6), dpi=200)
+    rows = []
+    for i, (sp_dir, sp_label) in enumerate(SPECIES):
+        raw = R2[sp_label]
+        times = [t for t in TIMES if t in set(raw.time)]
+        st = group_stats(raw, times)
+        st.insert(0, 'species', sp_label)
+        rows.append(st)
+        panel_stacked(axes[i, 0], st, times, AREAS,
+                      '(%s) %s - live + dead density (stacked)' % ('ac'[i], sp_label))
+        panel_total(axes[i, 1], raw, st, times, AREAS,
+                    '(%s) %s - total-cell adhesion (labels = anti-adhesion %%)'
+                    % ('bd'[i], sp_label), borrowed={t for sp, t in borrow if sp.replace('.', '').replace(' ', '').lower() == sp_label.replace('.', '').replace(' ', '').lower()})
+    fig.suptitle('650 nm textured stainless steel - LIVE/DEAD, repeat 2', fontsize=12.5, y=0.975)
+    figure_legend(fig, y=0.062)
+    note = ('ImageJ 1.54 adaptive threshold (bg mode + 40), size 3-500 px; 40x field area 46 946 um2; '
+            'bars = mean of 5 fields; %% over stacked bars = pooled viability; error bars = SD.')
+    if borrow:
+        note += ('  dagger = the repeat-2 control for that timepoint is missing and taken from '
+                 'repeat 1 (' + '; '.join('%s %s' % (s, t) for s, t in sorted(borrow)) + ').')
+    note += '  Extra coupon (sample 3) is excluded from every statistic on this figure.'
+    footer(fig, note, a.demo)
+    fig.tight_layout(rect=(0, 0.085, 1, 0.95))
+    pA = os.path.join(a.out, '650nm_livedead_repeat2%s.png' % suffix)
+    fig.savefig(pA)
+    plt.close(fig)
+    pd.concat(rows).to_csv(os.path.join(a.out, '650nm_livedead_repeat2_summary%s.csv' % suffix),
+                           index=False, encoding='utf-8-sig')
+    print('figure:', pA)
+
+    # ---------------- B. combined repeat1 + repeat2 ----------------
+    if R1:
+        fig, axes = plt.subplots(2, 2, figsize=(14.2, 9.6), dpi=200)
+        rows = []
+        for i, (sp_dir, sp_label) in enumerate(SPECIES):
+            r1, r2 = R1[sp_label].copy(), R2[sp_label].copy()
+            if a.exclude_3:
+                r1 = r1[r1.area != '3']
+            times = [t for t in TIMES if t in set(r1.time) | set(r2.time)]
+            cd = combined_table(r1, r2, times)
+            cd.insert(0, 'species', sp_label)
+            rows.append(cd)
+            panel_stacked_combined(axes[i, 0], cd, times,
+                                   '(%s) %s - live + dead density, repeats 1 + 2'
+                                   % ('ac'[i], sp_label))
+            panel_total_combined(axes[i, 1], cd, times,
+                                 '(%s) %s - total-cell adhesion, repeats 1 + 2'
+                                 % ('bd'[i], sp_label), borrowed={t for sp, t in borrow if sp.replace('.', '').replace(' ', '').lower() == sp_label.replace('.', '').replace(' ', '').lower()})
+        fig.suptitle('650 nm textured stainless steel - LIVE/DEAD, repeats 1 + 2 combined',
+                     fontsize=12.5, y=0.975)
+        figure_legend(fig, with_repeats=True, y=0.062)
+        note = ('Bars = mean of the two repeat means; markers = the individual repeat means '
+                '(circles = repeat 1, squares = repeat 2); error bars = SD of the two repeats. '
+                '%% over stacked bars = mean viability; %% over adhesion bars = anti-adhesion vs '
+                'the control of the same repeat and timepoint.')
+        if borrow:
+            note += '  dagger = repeat-2 control borrowed from repeat 1.'
+        note += '  Extra coupon (sample 3) excluded.'
+        footer(fig, note, a.demo)
+        fig.tight_layout(rect=(0, 0.085, 1, 0.95))
+        pB = os.path.join(a.out, '650nm_livedead_combined_repeat1_repeat2%s.png' % suffix)
+        fig.savefig(pB)
+        plt.close(fig)
+        pd.concat(rows).to_csv(os.path.join(a.out,
+                                            '650nm_livedead_combined_summary%s.csv' % suffix),
+                               index=False, encoding='utf-8-sig')
+        print('figure:', pB)
+
+    # ---------------- C. validation coupon (S. aureus 5 h) ----------------
+    sp_label = 'S. aureus'
+    r1 = R1.get(sp_label)
+    if a.demo:
+        r2_all = demo_raw(np.random.default_rng(12345), 'S.aureus')
+    else:
+        r2_all = load_raw(os.path.join(a.ic, 'S.aureus', 'livedead_raw_counts.csv'))
+    groups = []
+    if r1 is not None:
+        for ar, tag in (('c', 'R1\nCtrl'), ('2', 'R1\nNano (QC)')):
+            g = r1[(r1.time == '5h') & (r1.area == ar)]
+            if len(g):
+                groups.append((tag, g, SURF_COLOR['c'] if ar == 'c' else '#8D6E63'))
+    for ar, tag in (('c', 'R2\nCtrl'), ('2', 'R2\nNano #2'), ('3', 'R2\nNano #3')):
+        g = r2_all[(r2_all.time == '5h') & (r2_all.area == ar)]
+        if len(g):
+            groups.append((tag, g, SURF_COLOR['c'] if ar == 'c' else
+                           (SURF_COLOR['2'] if ar == '2' else SURF_COLOR['3'])))
+    if groups:
+        fig, axes = plt.subplots(1, 2, figsize=(12.8, 5.4), dpi=200)
+        xs = np.arange(len(groups))
+        ticklab = ['%s\n%d cells' % (tag, round(g['total'].mean())) for tag, g, _ in groups]
+        ax = axes[0]
+        ymax = max((g['live'].mean() + g['dead'].mean()) * K for _, g, _ in groups)
+        for x, (tag, g, col) in zip(xs, groups):
+            lv, dd = g['live'].mean() * K, g['dead'].mean() * K
+            ax.bar(x, lv, 0.66, color=C_LIVE, edgecolor='black', linewidth=0.5)
+            ax.bar(x, dd, 0.66, bottom=lv, color=C_DEAD, edgecolor='black', linewidth=0.5)
+            ax.text(x, lv + dd + ymax * 0.018,
+                    '%.1f%%' % (g['live'].sum() / g['total'].sum() * 100),
+                    ha='center', fontsize=8.4, color='#444444')
+        ax.set_xticks(xs)
+        ax.set_xticklabels(ticklab, fontsize=8.0)
+        ax.set_ylim(0, ymax * 1.16)
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda v, p: '{:,.0f}'.format(v)))
+        ax.set_ylabel('Cell density (cells/cm$^2$)', fontsize=9)
+        ax.set_title('(a) S. aureus 5 h - live + dead density by coupon', fontsize=10.5)
+        ax.grid(axis='y', alpha=0.25)
+        ax.axvline(1.5, color='#999999', linestyle=':', linewidth=1.0)
+        ax.legend(handles=[Patch(facecolor=C_LIVE, edgecolor='black', label='Live'),
+                           Patch(facecolor=C_DEAD, edgecolor='black', label='Dead')],
+                  frameon=False, fontsize=8.4, loc='upper right')
+
+        ax = axes[1]
+        for x, (tag, g, col) in zip(xs, groups):
+            v = g['live'].sum() / g['total'].sum() * 100
+            ax.bar(x, v, 0.66, color=col, edgecolor='black', linewidth=0.5)
+            ax.text(x, v + 3.0, '%.1f%%' % v, ha='center', fontsize=8.4, color='#333333')
+        ax.set_xticks(xs)
+        ax.set_xticklabels(ticklab, fontsize=8.0)
+        ax.set_ylim(0, 120)
+        ax.set_ylabel('Viability (%)', fontsize=9)
+        ax.set_title('(b) S. aureus 5 h - viability (lower label = mean total cells per field)',
+                     fontsize=10.5)
+        ax.grid(axis='y', alpha=0.25)
+        ax.axvline(1.5, color='#999999', linestyle=':', linewidth=1.0)
+        ax.legend(handles=[Patch(facecolor=SURF_COLOR['c'], edgecolor='black', label='Control'),
+                           Patch(facecolor=SURF_COLOR['2'], edgecolor='black',
+                                 label='Nanopillar (normal)'),
+                           Patch(facecolor=SURF_COLOR['3'], edgecolor='black',
+                                 label='Nanopillar (QC coupon, re-shot)')],
+                  frameon=False, fontsize=7.6, loc='upper left', ncol=3,
+                  bbox_to_anchor=(0.0, 1.02))
+        fig.suptitle('Validation coupon - near-zero-viability Nanopillar coupon vs a normal coupon '
+                     '(S. aureus, 5 h)', fontsize=11.5, y=0.90 if a.demo else 0.965)
+        footer(fig, 'Left of the dotted line = repeat 1; right = repeat 2. Sample 3 in repeat 2 is a '
+                    're-shot of the problematic coupon: shown here only, never pooled into the '
+                    'repeat-2 or combined statistics.', a.demo, y=0.012)
+        fig.tight_layout(rect=(0, 0.075, 1, 0.855 if a.demo else 0.925))
+        pC = os.path.join(a.out, '650nm_livedead_validation_5h_Saureus%s.png' % suffix)
+        fig.savefig(pC)
+        plt.close(fig)
+        print('figure:', pC)
+
+
+if __name__ == '__main__':
+    main()
