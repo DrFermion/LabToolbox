@@ -297,7 +297,7 @@ def display_table(rawT, rawV, times, areas=AREAS):
     return stT.merge(add, on=['time', 'area'], how='left', suffixes=('_t', ''))
 
 
-def panel_stacked_combined(ax, cd, times, title):
+def panel_stacked_combined(ax, cd, times, title, marks=True):
     xs, groups = _xmap(times, AREAS)
     ymax = 0.0
     for col in ('live_cm2', 'dead_cm2', 'total_cm2', 'r1_live', 'r2_live'):
@@ -314,7 +314,7 @@ def panel_stacked_combined(ax, cd, times, title):
         ax.bar(x, dd, 0.9, bottom=lv, color=C_DEAD, edgecolor='black', linewidth=0.45)
         for rv, mk, dx in ((float(g.r1_live.iloc[0]), 'o', -0.21),
                            (float(g.r2_live.iloc[0]), 's', 0.21)):
-            if not np.isfinite(rv):
+            if not marks or not np.isfinite(rv):
                 continue
             ax.plot(x + dx, rv, marker=mk, markersize=4.4, markerfacecolor='white',
                     markeredgecolor='black', markeredgewidth=0.9, zorder=5)
@@ -329,7 +329,7 @@ def panel_stacked_combined(ax, cd, times, title):
     ax.grid(axis='y', alpha=0.25)
 
 
-def panel_total_combined(ax, cd, times, title, borrowed=()):
+def panel_total_combined(ax, cd, times, title, borrowed=(), marks=True):
     xs, groups = _xmap(times, AREAS)
     ymax = float(cd[['r1_total', 'r2_total']].max().max())
     for (t, a), x in xs.items():
@@ -342,7 +342,7 @@ def panel_total_combined(ax, cd, times, title, borrowed=()):
         ax.errorbar(x, v, yerr=e, fmt='none', ecolor='#333333', elinewidth=0.9, capsize=3)
         for rv, mk, dx in ((float(g.r1_total.iloc[0]), 'o', -0.21),
                            (float(g.r2_total.iloc[0]), 's', 0.21)):
-            if not np.isfinite(rv):
+            if not marks or not np.isfinite(rv):
                 continue
             ax.plot(x + dx, rv, marker=mk, markersize=4.4, markerfacecolor='white',
                     markeredgecolor='black', markeredgewidth=0.9, zorder=5)
@@ -374,6 +374,11 @@ def main():
                          '(red counted as total): viability borrowed from repeat 1, total '
                          'values stay repeat 2')
     ap.add_argument('--exclude-3', action='store_true')
+    ap.add_argument('--plain', action='store_true',
+                    help='clean figure: no dagger/double-dagger marks on the time axis and a short '
+                         'footnote (data unchanged)')
+    ap.add_argument('--no-marks', action='store_true',
+                    help='do not draw the per-repeat mean markers (circles/squares)')
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     borrow = {tuple(x.split('|')) for x in a.borrow}
@@ -480,32 +485,44 @@ def main():
             rows.append(cd)
             b_set = {t for sp, t in borrow if _norm(sp) == _norm(sp_label)}
             v_set = {t for sp, t in viab_r1 if _norm(sp) == _norm(sp_label)}
+            marks = not a.no_marks
+            if a.plain:
+                b_set, v_set = set(), set()
             panel_stacked_combined(axes[i, 0], cd, times,
                                    '(%s) %s - live + dead density, repeats 1 + 2'
-                                   % ('ac'[i], sp_label))
+                                   % ('ac'[i], sp_label), marks=marks)
             panel_total_combined(axes[i, 1], cd, times,
                                  '(%s) %s - total-cell adhesion, repeats 1 + 2'
-                                 % ('bd'[i], sp_label), borrowed=b_set | v_set)
+                                 % ('bd'[i], sp_label), borrowed=b_set | v_set, marks=marks)
         fig.suptitle('650 nm textured stainless steel - LIVE/DEAD, repeats 1 + 2 combined',
                      fontsize=12.5, y=0.975)
-        figure_legend(fig, with_repeats=True, y=0.062)
-        note = ('Bars = mean of the two repeat means; markers = the individual repeat means '
-                '(circles = repeat 1, squares = repeat 2); error bars = SD of the two repeats. '
-                '%% over stacked bars = mean viability; %% over adhesion bars = anti-adhesion vs '
-                'the control of the same repeat and timepoint.')
-        if borrow:
-            note += '  dagger = repeat-2 control borrowed from repeat 1.'
-        if viab_r1:
-            note += ('  double dagger = repeat-2 control coupon contaminated (red counted as '
-                     'total): total uses repeat 2, viability uses repeat 1.')
-        note += ('  The repeat-1 S. aureus 5 h nanopillar marker at ~0 viability is the coupon that '
-                 'was re-shot as sample 3 in repeat 2 (Figure 3): the combined viability of that '
-                 'single bar mixes a superseded value with a normal one - quote the two repeats '
-                 'separately there.')
-        note += '  Extra coupon (sample 3) excluded.'
+        figure_legend(fig, with_repeats=marks, y=0.062)
+        if a.plain:
+            note = ('Bars = mean of the two repeat means; error bars = SD of the two repeats; '
+                    '% over stacked bars = mean viability; % over adhesion bars = anti-adhesion vs '
+                    'the control of the same timepoint. ImageJ 1.54, adaptive threshold, size '
+                    '3-500 px, 40x field area 46 946 um2, n = 5 fields per condition. '
+                    'S. aureus 7 h control and 24 h control viability are from repeat 1 '
+                    '(repeat-2 control missing / contaminated), so those two bars are qualitative.')
+        else:
+            note = ('Bars = mean of the two repeat means; markers = the individual repeat means '
+                    '(circles = repeat 1, squares = repeat 2); error bars = SD of the two repeats. '
+                    '%% over stacked bars = mean viability; %% over adhesion bars = anti-adhesion vs '
+                    'the control of the same repeat and timepoint.')
+            if borrow:
+                note += '  dagger = repeat-2 control borrowed from repeat 1.'
+            if viab_r1:
+                note += ('  double dagger = repeat-2 control coupon contaminated (red counted as '
+                         'total): total uses repeat 2, viability uses repeat 1.')
+            note += ('  The repeat-1 S. aureus 5 h nanopillar marker at ~0 viability is the coupon '
+                     'that was re-shot as sample 3 in repeat 2 (Figure 3): the combined viability of '
+                     'that single bar mixes a superseded value with a normal one - quote the two '
+                     'repeats separately there.')
+            note += '  Extra coupon (sample 3) excluded.'
         footer(fig, note, a.demo)
         fig.tight_layout(rect=(0, 0.085, 1, 0.95))
-        pB = os.path.join(a.out, '650nm_livedead_combined_repeat1_repeat2%s.png' % suffix)
+        pB = os.path.join(a.out, '650nm_livedead_combined_repeat1_repeat2%s%s.png'
+                          % (suffix, '_clean' if a.plain else ''))
         fig.savefig(pB)
         plt.close(fig)
         pd.concat(rows).to_csv(os.path.join(a.out,
