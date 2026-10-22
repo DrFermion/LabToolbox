@@ -45,15 +45,17 @@ TIMES = ['3h', '5h', '7h', '24h']
 KEEP_REPEATS = ['repeat 2']
 MINPX = 3
 MAXPX = 500
+ARGS = None          # set in main() from the CLI (minpx / repeats / outdir)
 
 
 def scan_dirs(species_dir):
+    keep = ARGS['repeats'] if ARGS else KEEP_REPEATS
     out = []
     for rep in sorted(os.listdir(species_dir)):
         rp = os.path.join(species_dir, rep)
         if not (os.path.isdir(rp) and re.match(r'^repeat\s*\d+$', rep, re.I)):
             continue
-        if rep.replace(' ', '').lower() not in [s.replace(' ', '').lower() for s in KEEP_REPEATS]:
+        if rep.replace(' ', '').lower() not in [s.replace(' ', '').lower() for s in keep]:
             continue
         for t in sorted(os.listdir(rp)):
             tp = os.path.join(rp, t)
@@ -76,13 +78,14 @@ def pair_files(files):
     return pairs
 
 
-def run_imagej(directory, out_csv):
+def run_imagej(directory, out_csv, minpx=None):
+    minpx = MINPX if minpx is None else minpx
     fd, args_path = tempfile.mkstemp(suffix='.txt', prefix='ij650r2_')
     with os.fdopen(fd, 'w', encoding='utf-8') as f:
         f.write(directory.replace('\\', '/') + '\n')
         f.write(out_csv.replace('\\', '/') + '\n')
         f.write('\n')
-        f.write('%d\n%d\n' % (MINPX, MAXPX))
+        f.write('%d\n%d\n' % (minpx, MAXPX))
     env = dict(os.environ, JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8')
     try:
         r = subprocess.run([JAVA, '-cp', IJAR, 'ij.ImageJ', '-batch', MACRO, args_path],
@@ -104,11 +107,21 @@ def run_imagej(directory, out_csv):
 
 
 def main():
+    global ARGS
     ap = argparse.ArgumentParser()
     ap.add_argument('--only', default='', help='e.g. S.aureus/5h to debug a single folder')
+    ap.add_argument('--minpx', type=int, default=3, help='min particle size in px (default 3)')
+    ap.add_argument('--repeats', default='repeat 2', help='comma separated, e.g. "repeat 1,repeat 2"')
+    ap.add_argument('--outdir', default='', help='count table output dir (default imagej_counts_repeat2)')
+    ap.add_argument('--mirror', default='', help='working mirror dir (default output/650_repeat2_20261022)')
     a = ap.parse_args()
-    for d in (OUT, MIRROR):
+    ARGS = {'minpx': a.minpx,
+            'repeats': [s.strip() for s in a.repeats.split(',') if s.strip()]}
+    out_dir = a.outdir or OUT
+    mirror = a.mirror or MIRROR
+    for d in (out_dir, mirror):
         os.makedirs(d, exist_ok=True)
+    print('counting: minpx=%d  repeats=%s  -> %s' % (a.minpx, ARGS['repeats'], out_dir), flush=True)
 
     log_lines = []
     t0 = time.time()
@@ -119,8 +132,8 @@ def main():
         for rep, t, tp in dirs:
             if a.only and a.only.lower() not in (tp.replace('\\', '/').lower()):
                 continue
-            out_csv = os.path.join(MIRROR, '_tmp_counts.csv')
-            cts = run_imagej(tp, out_csv)
+            out_csv = os.path.join(mirror, '_tmp_counts.csv')
+            cts = run_imagej(tp, out_csv, a.minpx)
             pairs = pair_files(os.listdir(tp))
             miss = []
             for (area, num), ch in sorted(pairs.items()):
@@ -154,7 +167,7 @@ def main():
             continue
         df['species'] = sp_label
         df = df.sort_values(['time', 'area', 'num']).reset_index(drop=True)
-        od = os.path.join(OUT, sp_dir)
+        od = os.path.join(out_dir, sp_dir)
         os.makedirs(od, exist_ok=True)
         df.to_csv(os.path.join(od, 'livedead_raw_counts.csv'), index=False, encoding='utf-8-sig')
         for t in TIMES:
@@ -175,9 +188,9 @@ def main():
                          g.dead.mean(),
                          ('%.1f%%' % (full.live.sum() / full.total.sum() * 100))
                          if len(full) else 'n/a (red=total)'), flush=True)
-    pd.DataFrame(summary).to_csv(os.path.join(MIRROR, 'repeat2_counts_summary.csv'),
+    pd.DataFrame(summary).to_csv(os.path.join(mirror, 'counts_summary.csv'),
                                  index=False, encoding='utf-8-sig')
-    with open(os.path.join(MIRROR, 'count_log.txt'), 'w', encoding='utf-8') as f:
+    with open(os.path.join(mirror, 'count_log.txt'), 'w', encoding='utf-8') as f:
         f.write('\n'.join(log_lines))
         f.write('\n\nelapsed %.0f s\n' % (time.time() - t0))
     print('done in %.0f s' % (time.time() - t0))
