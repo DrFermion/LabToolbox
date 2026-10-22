@@ -46,6 +46,49 @@ def add_bullets(doc, lines):
         doc.add_paragraph(line, style='List Bullet')
 
 
+def aa_lookup(df, val='total_cm2'):
+    """{(species, time, area): anti-adhesion %} against the control of the same timepoint."""
+    out = {}
+    if df is None:
+        return out
+    for sp in ('E. coli', 'S. aureus'):
+        for t in TIMES:
+            c = df[(df.species == sp) & (df.time == t) & (df.area == 'c')]
+            if c.empty:
+                continue
+            base = float(c[val].iloc[0])
+            if not base or not (base == base):
+                continue
+            for ar in ('1', '2'):
+                g = df[(df.species == sp) & (df.time == t) & (df.area == ar)]
+                if g.empty:
+                    continue
+                v = float(g[val].iloc[0])
+                if not (v == v):
+                    continue
+                out[(sp, t, ar)] = (base - v) / base * 100
+    return out
+
+
+def aa_table(doc, sp, lookups, caption):
+    """lookups: list of (column header, aa dict)."""
+    doc.add_paragraph(caption, style='Heading 3')
+    tb = doc.add_table(rows=1, cols=1 + len(lookups) * 2)
+    tb.style = 'Light Grid Accent 1'
+    tb.rows[0].cells[0].text = 'Time'
+    for i, (hdr, _) in enumerate(lookups):
+        tb.rows[0].cells[1 + 2 * i].text = hdr + ' / LIPSS'
+        tb.rows[0].cells[2 + 2 * i].text = hdr + ' / Nanopillar'
+    for t in TIMES:
+        cells = tb.add_row().cells
+        cells[0].text = t.replace('h', ' h')
+        for i, (_, lut) in enumerate(lookups):
+            for j, ar in enumerate(('1', '2')):
+                v = lut.get((sp, t, ar))
+                cells[1 + 2 * i + j].text = PENDING if v is None else '%+.0f %%' % v
+    doc.add_paragraph()
+
+
 def table_from_summary(doc, df, sp, value_col, fmt, header):
     tb = doc.add_table(rows=1, cols=len(AREAS) + 1)
     tb.style = 'Light Grid Accent 1'
@@ -64,15 +107,111 @@ def table_from_summary(doc, df, sp, value_col, fmt, header):
     doc.add_paragraph()
 
 
+def findings(R2, CB, raw=None):
+    """Narrative bullets with the real numbers, computed from the summary tables."""
+    def key(sp, t, a, col='total_cm2'):
+        r = CB[(CB.species == sp) & (CB.time == t) & (CB.area == a)]
+        return float(r[col].iloc[0]) if len(r) else float('nan')
+
+    def r2val(sp, t, a, col):
+        r = R2[(R2.species == sp) & (R2.time == t) & (R2.area == a)]
+        return float(r[col].iloc[0]) if len(r) else float('nan')
+
+    def aa(base, v):
+        if not (base == base) or not (v == v) or not base:
+            return float('nan')
+        return (base - v) / base * 100.0
+
+    def fmt(v):
+        return 'n/a' if v != v else '%+.0f%%' % v
+
+    def series(sp, ar, rep):
+        out = []
+        for t in TIMES:
+            if rep == 'r2':
+                base = r2val(sp, t, 'c', 'total_cm2')
+                val = r2val(sp, t, ar, 'total_cm2')
+            elif rep == 'comb':
+                base = key(sp, t, 'c', 'total_cm2')
+                val = key(sp, t, ar, 'total_cm2')
+            else:
+                base = key(sp, t, 'c', 'r1_total')
+                val = key(sp, t, ar, 'r1_total')
+            out.append(aa(base, val))
+        return out
+
+    def agree(sp, ar):
+        a1, a2 = series(sp, ar, 'r1'), series(sp, ar, 'r2')
+        ok = [t for t, x, y in zip(TIMES, a1, a2)
+              if x == x and y == y and abs(x) > 5 and abs(y) > 5 and (x > 0) == (y > 0)]
+        bad = [t for t, x, y in zip(TIMES, a1, a2)
+               if x == x and y == y and abs(x) > 5 and abs(y) > 5 and (x > 0) != (y > 0)]
+        return ok, bad
+
+    L = []
+    for sp in ('E. coli', 'S. aureus'):
+        s2t1 = ', '.join(fmt(v) for v in series(sp, '1', 'r2'))
+        s2t2 = ', '.join(fmt(v) for v in series(sp, '2', 'r2'))
+        sct1 = ', '.join(fmt(v) for v in series(sp, '1', 'comb'))
+        sct2 = ', '.join(fmt(v) for v in series(sp, '2', 'comb'))
+        s1t1 = ', '.join(fmt(v) for v in series(sp, '1', 'r1'))
+        s1t2 = ', '.join(fmt(v) for v in series(sp, '2', 'r1'))
+        L.append('%s - anti-adhesion on total cells (3, 5, 7, 24 h): repeat 2 LIPSS %s / nanopillar '
+                 '%s; repeat 1 LIPSS %s / nanopillar %s; combined LIPSS %s / nanopillar %s. '
+                 '(positive = fewer cells than the control, negative = more.)'
+                 % (sp, s2t1, s2t2, s1t1, s1t2, sct1, sct2))
+    vb = []
+    for sp in ('E. coli', 'S. aureus'):
+        vb.append('%s viability in repeat 2 - control %s, LIPSS %s, nanopillar %s' % (
+            sp,
+            ', '.join('%.0f%%' % r2val(sp, t, 'c', 'viability') for t in TIMES),
+            ', '.join('%.0f%%' % r2val(sp, t, '1', 'viability') for t in TIMES),
+            ', '.join('%.0f%%' % r2val(sp, t, '2', 'viability') for t in TIMES)))
+    L += vb
+    ag = []
+    for sp in ('E. coli', 'S. aureus'):
+        for ar, nm in (('1', 'LIPSS'), ('2', 'nanopillar')):
+            ok, bad = agree(sp, ar)
+            if ok:
+                ag.append('%s %s agrees at %s' % (sp, nm, '/'.join(ok)))
+            if bad:
+                ag.append('%s %s flips sign at %s' % (sp, nm, '/'.join(bad)))
+    L.append('Repeat-to-repeat agreement (sign of the anti-adhesion, |AA| > 5 %): '
+             + '; '.join(ag) + '. Where the two repeats flip sign the pooled value is not an '
+             'effect - quote the repeats separately.')
+    if raw is not None and len(raw):
+        r = raw[(raw.time == '5h') & (raw.species == 'S. aureus')].dropna(subset=['live', 'dead'])
+        s2 = r[r.area.astype(str) == '2']
+        s3 = r[r.area.astype(str) == '3']
+        if len(s2) and len(s3):
+            v2 = s2.live.sum() / (s2.live.sum() + s2.dead.sum()) * 100
+            v3 = s3.live.sum() / (s3.live.sum() + s3.dead.sum()) * 100
+            L.append('Validation coupon (Figure 3): the repeat-1 nanopillar coupon that read 0.4 %% '
+                     'viability at 5 h was re-shot in repeat 2 as sample 3 and now reads %.1f %% '
+                     'viability with %.0f cells per field, against %.1f %% / %.0f cells on the '
+                     'normal coupon (sample 2). The near-zero value is therefore a '
+                     'coupon/staining artefact, not a surface effect: the repeat-1 5 h nanopillar '
+                     'viability must not be quoted, and the combined bar for that condition mixes '
+                     'a superseded value with a normal one.'
+                     % (v3, s3.total.mean(), v2, s2.total.mean()))
+        else:
+            L.append('Validation coupon (Figure 3): see the figure - sample 3 is the re-shot coupon.')
+    else:
+        L.append('Validation coupon (Figure 3): sample 3 is the re-shot coupon; sample 3 is never '
+                 'pooled into any statistic.')
+    return L
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--figdir', required=True)
+    ap.add_argument('--ic', default='', help='repeat-2 imagej_counts dir (for the sample-3 numbers)')
     ap.add_argument('--template', action='store_true')
     ap.add_argument('--out', default='')
     ap.add_argument('--date', default='')
     a = ap.parse_args()
     tag = '_TEMPLATE' if a.template else ''
-    date = a.date or '2026-10-21'
+    date = a.date or '2026-10-22'
 
     fa = os.path.join(a.figdir, '650nm_livedead_repeat2%s.png' % tag)
     fb = os.path.join(a.figdir, '650nm_livedead_combined_repeat1_repeat2%s.png' % tag)
@@ -81,6 +220,14 @@ def main():
     sb = os.path.join(a.figdir, '650nm_livedead_combined_summary%s.csv' % tag)
     R2 = None if a.template else (pd.read_csv(sa, encoding='utf-8-sig') if os.path.exists(sa) else None)
     CB = None if a.template else (pd.read_csv(sb, encoding='utf-8-sig') if os.path.exists(sb) else None)
+    RAW = None
+    if a.ic:
+        p = os.path.join(a.ic, 'S.aureus', 'livedead_raw_counts.csv')
+        if os.path.exists(p):
+            RAW = pd.read_csv(p, encoding='utf-8-sig')
+            RAW['area'] = RAW['area'].astype(str)
+            RAW['time'] = RAW['time'].astype(str)
+            RAW['species'] = 'S. aureus'
 
     doc = Document()
     for sec in doc.sections:
@@ -127,6 +274,9 @@ def main():
         'only in Figure 3. The repeat-2 S. aureus 7 h control is missing, so the repeat-1 control of '
         'the same timepoint is used instead and flagged with a dagger in the figures and in the '
         'tables below.',
+        'The repeat-2 S. aureus 24 h control coupon was contaminated (no green channel, red counted '
+        'as total): its total-cell value is repeat 2, its viability/live-dead values are taken from '
+        'repeat 1 and flagged with a double dagger. This follows the readme left in that folder.',
     ])
 
     doc.add_heading('3. Results', level=1)
@@ -158,35 +308,36 @@ def main():
             R2w = R2.copy()
             R2w['total_1e5'] = R2w['total_cm2'] / 1e5
         table_from_summary(doc, None if R2 is None else R2w, sp, 'total_1e5', '%.2f', 'total')
+        aa_table(doc, sp, [('repeat 2', aa_lookup(R2)),
+                           ('repeats 1+2', aa_lookup(CB))],
+                 'Anti-adhesion (%%, total cells) - %s; positive = fewer cells than the control'
+                 % sp)
 
-    doc.add_heading('4. Statistics to report (once repeat 2 is counted)', level=1)
-    add_bullets(doc, [
-        'One-way ANOVA across the three areas per organism and timepoint, for viability and for '
-        'live / total density, reported with the effective n.',
-        'Welch t-test per timepoint for each textured area against the control of the same repeat '
-        '(uncorrected; asterisks in the figures).',
-        'Repeat-to-repeat agreement: for each condition, the two repeat means are shown as markers '
-        'so that a condition that only appears in one repeat is visible at a glance. A formal '
-        'two-repeat comparison is only worth reporting where both repeats are concordant in sign.',
-        'Combined values are reported as the mean of the two repeat means (each repeat weighted '
-        'equally, not weighted by field count).',
-    ])
+    doc.add_heading('4. Findings', level=1)
+    if a.template or R2 is None or CB is None:
+        add_bullets(doc, [PENDING + ' repeat 2 is not counted yet - this section fills itself in '
+                          'as soon as the numbers are in.'])
+    else:
+        add_bullets(doc, findings(R2, CB, RAW))
 
     doc.add_heading('5. QC and limitations', level=1)
     add_bullets(doc, [
         'Exposure time differs between sessions (read from the TIFF metadata): absolute densities '
         'are not directly comparable across timepoints; viability ratios are far less affected '
         'because both channels share the exposure.',
-        'Counting excludes clusters larger than 500 px, so counts in dense fields are slight lower '
-        'bounds.',
+        'Counting excludes clusters larger than 500 px and uses size 3-500 px, so counts in dense '
+        'fields are slight lower bounds.',
         'The repeat-2 S. aureus 7 h control is borrowed from repeat 1 - it shares the repeat-1 '
-        'session conditions, so the 7 h anti-adhesion values for that organism carry an extra '
-        'uncertainty and are flagged.',
-        'Sample 3 exists at one timepoint only (S. aureus 5 h); it is a coupon re-test, not a '
-        'biological replicate, and cannot be used to estimate repeat-to-repeat variance.',
-        'If the repeat-2 sample 3 also shows near-zero viability on the same coupon while sample 2 '
-        'does not, the repeat-1 anomaly is a coupon/staining artefact rather than a surface effect, '
-        'and the repeat-1 5 h nanopillar value stays marked "do not quote".',
+        'session conditions, so the 7 h values for that organism carry extra uncertainty (dagger).',
+        'The repeat-2 S. aureus 24 h control coupon was contaminated: only the red channel exists. '
+        'Its total-cell numbers are used as the control for the anti-adhesion calculation, while '
+        'the viability of that point comes from repeat 1 (double dagger).',
+        'Sample 3 exists at one timepoint only (S. aureus 5 h) and is a coupon re-test, not a '
+        'biological replicate: it cannot be used to estimate repeat-to-repeat variance.',
+        'The repeat-1 S. aureus 5 h nanopillar viability (0.4 %) is superseded by the repeat-2 '
+        're-shot of the same coupon and must not be quoted or pooled.',
+        'Repeat 3 folders exist in the dataset but are still empty, so this report covers two '
+        'repeats only; no formal two-repeat p-value is defensible yet (n = 2 means).',
     ])
 
     doc.add_heading('6. Data and provenance', level=1)
@@ -198,7 +349,9 @@ def main():
         'E:\\LabToolbox\\scripts\\build_650_repeat2_report.py. Repository '
         'github.com/DrFermion/LabToolbox.',
         'One command reproduces everything: python plot_650_repeat2.py --ic <repeat-2 counts> '
-        '--ic-r1 <repeat-1 counts> --out <dir> --borrow "S.aureus|7h" --exclude-3',
+        '--ic-r1 <repeat-1 counts> --out <dir> --borrow "S.aureus|7h" '
+        '--viab-from-r1 "S.aureus|24h" --exclude-3; the counts themselves come from '
+        'recount_650_repeat2_imagej.py (same ImageJ macro as repeat 1).',
     ])
 
     docx_path = os.path.join(SCRATCH, '650nm_repeat2_report%s.docx' % tag)

@@ -150,11 +150,13 @@ def append_day2(ws, pairs):
 
 
 def draw(path, values, days, cond, title, note, ymax=None):
-    # 13.6 in wide + 6.5 pt tick labels: measured clear at 9 time points (through Day 28, min gap +2.4 pt).
+    # 18.6 in wide + 6.0 pt tick labels: measured clear at 10 time points (through Day 39, min gap +2.3 pt).
+    # (13.6 in / 6.5 pt was clear at 9 points through Day 28; Day 39 extends the axis to 0-39 and
+    #  re-tightened the Day 0-1-2-3 cluster to -4.0 pt -> rescanned the grid, see commit note.)
     # History: 10.2 in / 7 pt was clear by 2.6 pt at 8 points (through Day 19); Day 28 (axis range 0-28)
     # re-tightened the Day 0-1-2-3 gaps to -7.7 pt -> widened. Criterion: min adjacent-label gap >= 2 pt,
     # measured at dpi=200 via get_window_extent (never eyeball).
-    fig, ax = plt.subplots(figsize=(13.6, 5.6))
+    fig, ax = plt.subplots(figsize=(18.6, 5.6))
     # x = elapsed day number, so a 4-day gap is drawn 4x wider than a 1-day gap
     xs = [float(day_key(d)) if day_key(d) != 999 else i for i, d in enumerate(days)]
     for g in GROUPS:
@@ -178,7 +180,7 @@ def draw(path, values, days, cond, title, note, ymax=None):
         if c[1] is not None and c[2] is not None:
             parts.append(f"{c[1]}°/{c[2]}%")
         labels.append("\n".join(parts))
-    ax.set_xticklabels(labels, fontsize=6.5)
+    ax.set_xticklabels(labels, fontsize=6.0)
     ax.set_xlabel("Day (date)  ·  T °C / RH %", fontsize=8, labelpad=3)
     ax.set_ylabel("Water contact angle (deg)")
     if ymax is None:
