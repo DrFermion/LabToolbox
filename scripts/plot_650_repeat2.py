@@ -259,30 +259,40 @@ def footer(fig, text, demo, y=0.006):
 
 def combined_table(r1, r2, times, areas=AREAS, r2_tot=None):
     """r2 carries the viability view (borrowed control where flagged), r2_tot the
-    total-cell view (red-as-total rows kept)."""
+    total-cell view (red-as-total rows kept). A condition present in only one
+    repeat (the other one dropped as superseded) yields that single repeat value
+    and a NaN SD, so it is not drawn as if it were a two-repeat mean."""
     st1 = group_stats(r1, times, areas)
     st2 = group_stats(r2, times, areas)
     st2t = group_stats(r2_tot if r2_tot is not None else r2, times, areas)
+
+    def pick(a, b):
+        vals = [v for v in (a, b) if v == v]
+        if not vals:
+            return np.nan, np.nan
+        return float(np.mean(vals)), (float(np.std(vals, ddof=1)) if len(vals) > 1 else np.nan)
+
     rows = []
     for t in times:
         for ar in areas:
             g1 = st1[(st1.time == t) & (st1.area == ar)]
             g2 = st2[(st2.time == t) & (st2.area == ar)]
             g2t = st2t[(st2t.time == t) & (st2t.area == ar)]
-            if g1.empty or g2t.empty:
+            if g1.empty and g2t.empty:
                 continue
-            tot2 = g2t.total_cm2.iloc[0]
-            rows.append(dict(time=t, area=ar, n=2,
-                             live_cm2=(g1.live_cm2.iloc[0] + g2.live_cm2.iloc[0]) / 2
-                             if np.isfinite(g2.live_cm2.iloc[0]) else np.nan,
-                             dead_cm2=(g1.dead_cm2.iloc[0] + g2.dead_cm2.iloc[0]) / 2
-                             if np.isfinite(g2.dead_cm2.iloc[0]) else np.nan,
-                             total_cm2=(g1.total_cm2.iloc[0] + tot2) / 2,
-                             total_cm2_sd=float(np.std([g1.total_cm2.iloc[0], tot2], ddof=1)),
-                             viability=np.nanmean([g1.viability.iloc[0], g2.viability.iloc[0]]),
-                             r1_live=g1.live_cm2.iloc[0], r2_live=g2.live_cm2.iloc[0],
-                             r1_dead=g1.dead_cm2.iloc[0], r2_dead=g2.dead_cm2.iloc[0],
-                             r1_total=g1.total_cm2.iloc[0], r2_total=tot2))
+            v1 = lambda col: (float(g1[col].iloc[0]) if not g1.empty else np.nan)
+            v2 = lambda col: (float(g2[col].iloc[0]) if not g2.empty else np.nan)
+            v2t = lambda col: (float(g2t[col].iloc[0]) if not g2t.empty else np.nan)
+            live, _ = pick(v1('live_cm2'), v2('live_cm2'))
+            dead, _ = pick(v1('dead_cm2'), v2('dead_cm2'))
+            total, total_sd = pick(v1('total_cm2'), v2t('total_cm2'))
+            viab, _ = pick(v1('viability'), v2('viability'))
+            rows.append(dict(time=t, area=ar, n=int((not g1.empty) + (not g2t.empty)),
+                             live_cm2=live, dead_cm2=dead,
+                             total_cm2=total, total_cm2_sd=total_sd, viability=viab,
+                             r1_live=v1('live_cm2'), r2_live=v2('live_cm2'),
+                             r1_dead=v1('dead_cm2'), r2_dead=v2('dead_cm2'),
+                             r1_total=v1('total_cm2'), r2_total=v2t('total_cm2')))
     return pd.DataFrame(rows)
 
 
@@ -374,6 +384,9 @@ def main():
                          '(red counted as total): viability borrowed from repeat 1, total '
                          'values stay repeat 2')
     ap.add_argument('--exclude-3', action='store_true')
+    ap.add_argument('--drop-r1', action='append', default=[],
+                    help='species|time|area whose repeat-1 measurement is superseded and must be '
+                         'left out of the combined figure (e.g. S.aureus|5h|2)')
     ap.add_argument('--plain', action='store_true',
                     help='clean figure: no dagger/double-dagger marks on the time axis and a short '
                          'footnote (data unchanged)')
@@ -401,6 +414,15 @@ def main():
         return x.replace('.', '').replace(' ', '').lower()
 
     for sp_label in R2:
+        for sp_b, t_b, ar_b in {tuple(x.split('|')) for x in a.drop_r1}:
+            if _norm(sp_b) != _norm(sp_label) or sp_label not in R1:
+                continue
+            d0 = R1[sp_label]
+            keep = ~((d0.time == t_b) & (d0.area == ar_b))
+            if (~keep).sum():
+                R1[sp_label] = d0[keep]
+                print('dropped repeat-1 measurement: %s %s area %s (%d rows) - superseded coupon'
+                      % (sp_label, t_b, ar_b, int((~keep).sum())))
         if a.exclude_3:
             R2[sp_label] = R2[sp_label][R2[sp_label].area != '3']
             R2V[sp_label] = R2V[sp_label][R2V[sp_label].area != '3']
@@ -498,12 +520,26 @@ def main():
                      fontsize=12.5, y=0.975)
         figure_legend(fig, with_repeats=marks, y=0.062)
         if a.plain:
-            note = ('Bars = mean of the two repeat means; error bars = SD of the two repeats; '
+            note = ('Bars = mean of the two repeat means; error bars on the adhesion panels = SD of '
+                    'the two repeats (stacked panels show the mean viability only); '
                     '% over stacked bars = mean viability; % over adhesion bars = anti-adhesion vs '
                     'the control of the same timepoint. ImageJ 1.54, adaptive threshold, size '
                     '3-500 px, 40x field area 46 946 um2, n = 5 fields per condition. '
                     'S. aureus 7 h control and 24 h control viability are from repeat 1 '
                     '(repeat-2 control missing / contaminated), so those two bars are qualitative.')
+            if a.drop_r1:
+                bits = []
+                for tok in a.drop_r1:
+                    try:
+                        s_b, t_b, ar_b = tok.split('|')
+                    except ValueError:
+                        continue
+                    bits.append('%s %s %s bar = repeat 2 only: the repeat-1 measurement on that '
+                                'coupon was a staining artefact and is excluded'
+                                % (s_b.replace('.', ' ').strip(), t_b,
+                                   AREA_SHORT.get(ar_b, ar_b).replace('\n', ' ')))
+                if bits:
+                    note += '  ' + '; '.join(bits) + '.'
         else:
             note = ('Bars = mean of the two repeat means; markers = the individual repeat means '
                     '(circles = repeat 1, squares = repeat 2); error bars = SD of the two repeats. '
