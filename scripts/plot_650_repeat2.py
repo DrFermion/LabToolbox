@@ -178,7 +178,7 @@ def _time_labels(ax, times, xs, groups, areas, borrowed=(), viab_borrowed=()):
     ax.set_xlim(-1.7, (len(times) - 1) * 4.0 + 1.7)
 
 
-def panel_stacked(ax, st, times, areas, title, borrowed=(), viab_borrowed=()):
+def panel_stacked(ax, st, times, areas, title, borrowed=(), viab_borrowed=(), est_times=()):
     xs, groups = _xmap(times, areas)
     ymax = float((st['live_cm2'] + st['dead_cm2']).max())
     if not np.isfinite(ymax) or ymax <= 0:
@@ -187,12 +187,21 @@ def panel_stacked(ax, st, times, areas, title, borrowed=(), viab_borrowed=()):
         g = st[(st.time == t) & (st.area == a)]
         if g.empty or not np.isfinite(float(g['live_cm2'].iloc[0])):
             continue
+        if a == 'c' and t in est_times:
+            continue                # control not measured: the dashed estimate line stands alone
         lv, dd = float(g['live_cm2'].iloc[0]), float(g['dead_cm2'].iloc[0])
         ax.bar(x, lv, 0.9, color=C_LIVE, edgecolor='black', linewidth=0.45)
         ax.bar(x, dd, 0.9, bottom=lv, color=C_DEAD, edgecolor='black', linewidth=0.45)
         if np.isfinite(float(g['viability'].iloc[0])):
             ax.text(x, lv + dd + ymax * 0.012, '%.0f%%' % float(g['viability'].iloc[0]),
                     ha='center', va='bottom', fontsize=6.8, color='#444444')
+    for t in est_times:
+        g = st[(st.time == t) & (st.area == 'c')]
+        if g.empty:
+            continue
+        vc = float(g['total_cm2'].iloc[0])
+        _draw_est(ax, xs[(t, 'c')] - 0.5, xs[(t, '2')] + 0.5, vc, label='est. control total')
+        ymax = max(ymax, vc)
     ax.set_ylim(0, ymax * 1.13)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, p: '{:,.0f}'.format(v)))
     _time_labels(ax, times, xs, groups, areas, borrowed, viab_borrowed)
@@ -201,7 +210,18 @@ def panel_stacked(ax, st, times, areas, title, borrowed=(), viab_borrowed=()):
     ax.grid(axis='y', alpha=0.25)
 
 
-def panel_total(ax, raw, st, times, areas, title, borrowed=(), viab_borrowed=()):
+def _draw_est(ax, x0, x1, v, label='est. control', label_x=None):
+    """Horizontal dashed line marking an inferred (not measured) control level."""
+    ax.plot([x0, x1], [v, v], color='#222222', linestyle=(0, (6, 3)),
+            linewidth=1.6, zorder=6)
+    if label:
+        lx = x0 + 0.55 if label_x is None else label_x
+        ax.text(lx, v, label, fontsize=6.4, color='#111111', va='bottom',
+                ha='center', zorder=7,
+                bbox=dict(boxstyle='round,pad=0.16', fc='white', ec='none', alpha=0.95))
+
+
+def panel_total(ax, raw, st, times, areas, title, borrowed=(), viab_borrowed=(), est_times=()):
     xs, groups = _xmap(times, areas)
     ymax = 0.0
     for (t, a), x in xs.items():
@@ -210,19 +230,28 @@ def panel_total(ax, raw, st, times, areas, title, borrowed=(), viab_borrowed=())
             continue
         v = float(g['total_cm2'].iloc[0])
         e = float(g['total_cm2_sd'].iloc[0])
+        if a == 'c' and t in est_times:
+            continue                    # no control bar: the dashed line below is the estimate
         ax.bar(x, v, 0.9, color=SURF_COLOR[a], edgecolor='black', linewidth=0.45)
         ax.errorbar(x, v, yerr=e, fmt='none', ecolor='#333333', elinewidth=0.9, capsize=3)
         if a != 'c':
-            aa = surface_aa(raw, t, a)
-            if aa is None:
-                lab = ''
-            elif abs(aa['aa_total']) < 0.5:
-                lab = '0%'
-            else:
-                lab = '%.0f%%' % aa['aa_total']
+            cg = st[(st.time == t) & (st.area == 'c')]
+            lab = ''
+            if not cg.empty:
+                cc = float(cg['total_cm2'].iloc[0])
+                if cc:
+                    aa_v = (cc - v) / cc * 100.0
+                    lab = '0%' if abs(aa_v) < 0.5 else '%.0f%%' % aa_v
             ax.text(x, v + e + ymax * 0.02, lab, ha='center', va='bottom',
                     fontsize=7.0, color='#222222')
         ymax = max(ymax, v + e)
+    for t in est_times:
+        g = st[(st.time == t) & (st.area == 'c')]
+        if g.empty:
+            continue
+        vc = float(g['total_cm2'].iloc[0])
+        _draw_est(ax, xs[(t, 'c')] - 0.5, xs[(t, '2')] + 0.5, vc)
+        ymax = max(ymax, vc)
     ax.set_ylim(0, ymax * 1.15)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, p: '{:,.0f}'.format(v)))
     _time_labels(ax, times, xs, groups, areas, borrowed, viab_borrowed)
@@ -246,15 +275,15 @@ def figure_legend(fig, with_repeats=False, y=0.062):
                ncol=len(h), frameon=False, fontsize=8.8, handlelength=1.6, columnspacing=1.6)
 
 
-def footer(fig, text, demo, y=0.006):
+def footer(fig, text, demo, y=0.006, fontsize=7.1, width=168):
     if demo:
         fig.patches.append(plt.Rectangle((0.0, 0.962), 1.0, 0.038, transform=fig.transFigure,
                                          facecolor='#FFCDD2', edgecolor='#C62828', linewidth=1.0,
                                          zorder=5, figure=fig))
         fig.text(0.5, 0.981, DEMO_TAG, ha='center', va='center', fontsize=10,
                  color='#B71C1C', fontweight='bold', zorder=6)
-    fig.text(0.005, y, textwrap.fill(text, 168), ha='left', va='bottom',
-             fontsize=7.1, color='#666666', style='italic')
+    fig.text(0.005, y, textwrap.fill(text, width), ha='left', va='bottom',
+             fontsize=fontsize, color='#666666', style='italic')
 
 
 def combined_table(r1, r2, times, areas=AREAS, r2_tot=None):
@@ -307,7 +336,7 @@ def display_table(rawT, rawV, times, areas=AREAS):
     return stT.merge(add, on=['time', 'area'], how='left', suffixes=('_t', ''))
 
 
-def panel_stacked_combined(ax, cd, times, title, marks=True):
+def panel_stacked_combined(ax, cd, times, title, marks=True, est_times=()):
     xs, groups = _xmap(times, AREAS)
     ymax = 0.0
     for col in ('live_cm2', 'dead_cm2', 'total_cm2', 'r1_live', 'r2_live'):
@@ -319,6 +348,8 @@ def panel_stacked_combined(ax, cd, times, title, marks=True):
         g = cd[(cd.time == t) & (cd.area == a)]
         if g.empty or not np.isfinite(float(g['live_cm2'].iloc[0])):
             continue
+        if a == 'c' and t in est_times:
+            continue                # control not measured: the dashed estimate line stands alone
         lv, dd = float(g['live_cm2'].iloc[0]), float(g['dead_cm2'].iloc[0])
         ax.bar(x, lv, 0.9, color=C_LIVE, edgecolor='black', linewidth=0.45)
         ax.bar(x, dd, 0.9, bottom=lv, color=C_DEAD, edgecolor='black', linewidth=0.45)
@@ -331,6 +362,13 @@ def panel_stacked_combined(ax, cd, times, title, marks=True):
         if np.isfinite(float(g['viability'].iloc[0])):
             ax.text(x, lv + dd + ymax * 0.012, '%.0f%%' % float(g['viability'].iloc[0]),
                     ha='center', va='bottom', fontsize=6.8, color='#444444')
+    for t in est_times:
+        g = cd[(cd.time == t) & (cd.area == 'c')]
+        if g.empty:
+            continue
+        vc = float(g['total_cm2'].iloc[0])
+        _draw_est(ax, xs[(t, 'c')] - 0.5, xs[(t, '2')] + 0.5, vc, label='est. control total')
+        ymax = max(ymax, vc)
     ax.set_ylim(0, ymax * 1.13)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, p: '{:,.0f}'.format(v)))
     _time_labels(ax, times, xs, groups, AREAS)
@@ -339,7 +377,7 @@ def panel_stacked_combined(ax, cd, times, title, marks=True):
     ax.grid(axis='y', alpha=0.25)
 
 
-def panel_total_combined(ax, cd, times, title, borrowed=(), marks=True):
+def panel_total_combined(ax, cd, times, title, borrowed=(), marks=True, est_times=()):
     xs, groups = _xmap(times, AREAS)
     ymax = float(cd[['r1_total', 'r2_total']].max().max())
     for (t, a), x in xs.items():
@@ -348,6 +386,8 @@ def panel_total_combined(ax, cd, times, title, borrowed=(), marks=True):
             continue
         v = float(g['total_cm2'].iloc[0])
         e = float(g['total_cm2_sd'].iloc[0])
+        if a == 'c' and t in est_times:
+            continue                    # no control bar: the dashed line below is the estimate
         ax.bar(x, v, 0.9, color=SURF_COLOR[a], edgecolor='black', linewidth=0.45)
         ax.errorbar(x, v, yerr=e, fmt='none', ecolor='#333333', elinewidth=0.9, capsize=3)
         for rv, mk, dx in ((float(g.r1_total.iloc[0]), 'o', -0.21),
@@ -363,12 +403,34 @@ def panel_total_combined(ax, cd, times, title, borrowed=(), marks=True):
                 ax.text(x, v + e + ymax * 0.02, '%.0f%%' % ((cc - v) / cc * 100),
                         ha='center', va='bottom', fontsize=7.0, color='#222222')
         ymax = max(ymax, v + e)
+    for t in est_times:
+        g = cd[(cd.time == t) & (cd.area == 'c')]
+        if g.empty:
+            continue
+        vc = float(g['total_cm2'].iloc[0])
+        _draw_est(ax, xs[(t, 'c')] - 0.5, xs[(t, '2')] + 0.5, vc)
+        ymax = max(ymax, vc)
     ax.set_ylim(0, ymax * 1.15)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, p: '{:,.0f}'.format(v)))
     _time_labels(ax, times, xs, groups, AREAS, borrowed)
     ax.set_ylabel('Total cells (live + dead), cells/cm$^2$', fontsize=9)
     ax.set_title(title, fontsize=10.2)
     ax.grid(axis='y', alpha=0.25)
+
+
+def est_note(EST):
+    """Compact footnote for the inferred controls (kept short: the footer is one text block)."""
+    if not EST:
+        return ''
+    bits = []
+    for (sp, t), e in sorted(EST.items()):
+        bits.append('%s %s control not measurable in repeat 2 -> estimated %.2e cells/cm2 '
+                    '(plausible %.2e-%.2e) from the treated:control ratio at the timepoints with a '
+                    'real control (pooled %.2f, spread %.2f-%.2f, %d pairs); dashed line = estimate, '
+                    'not a measurement'
+                    % (sp, t, e['c'] * K, e['c_lo'] * K, e['c_hi'] * K,
+                       e['ratio'], e['lo'], e['hi'], e['n_pairs']))
+    return '  ' + '; '.join(bits) + '.'
 
 
 def main():
@@ -384,6 +446,10 @@ def main():
                          '(red counted as total): viability borrowed from repeat 1, total '
                          'values stay repeat 2')
     ap.add_argument('--exclude-3', action='store_true')
+    ap.add_argument('--infer-ctrl', action='append', default=[],
+                    help='species whose repeat-2 control is MISSING or red-only at some timepoint: '
+                         'estimate it from the other timepoints (treated:control ratio observed '
+                         'where the control is real) and mark the estimate with a dashed line')
     ap.add_argument('--drop-r1', action='append', default=[],
                     help='species|time|area whose repeat-1 measurement is superseded and must be '
                          'left out of the combined figure (e.g. S.aureus|5h|2)')
@@ -397,15 +463,17 @@ def main():
     borrow = {tuple(x.split('|')) for x in a.borrow}
     viab_r1 = {tuple(x.split('|')) for x in a.viab_from_r1}
 
-    R2, R2V, R1 = {}, {}, {}
+    R2, R2V, R2RAW, R1 = {}, {}, {}, {}
     for sp_dir, sp_label in SPECIES:
         if a.demo:
             d = demo_raw(np.random.default_rng(abs(hash(sp_label)) % 2 ** 32), sp_dir)
             R2[sp_label], R2V[sp_label] = d, d.copy()
+            R2RAW[sp_label] = d.copy()
         else:
             d = load_raw(os.path.join(a.ic, sp_dir, 'livedead_raw_counts.csv'))
             R2[sp_label] = d                 # total-cell view (red-as-total rows kept)
             R2V[sp_label] = d[d.live.notna()].copy()   # viability view
+            R2RAW[sp_label] = d.copy()       # pristine copy for the control inference
         r1_dir = a.ic_r1 or (R1_DIR if a.demo else '')
         if r1_dir:
             R1[sp_label] = load_raw(os.path.join(r1_dir, sp_dir, 'livedead_raw_counts.csv'))
@@ -453,6 +521,66 @@ def main():
             print('borrowed viability-only control: %s %s <- repeat 1 (%d fields)'
                   % (sp_label, t_b, len(donor)))
 
+    # ---------------- control inference (dashed estimates) ----------------
+    EST = {}
+    infer_sp = {_norm(x) for x in a.infer_ctrl}
+    for sp_label in R2:
+        if _norm(sp_label) not in infer_sp:
+            continue
+        base = R2RAW[sp_label]
+        ratios = []
+        for t in TIMES:
+            c = base[(base.time == t) & (base.area == 'c')]
+            if len(c) == 0:
+                continue
+            if 'red_only' in c.columns and bool(c['red_only'].any()):
+                continue                      # contaminated coupon: not a real control
+            cm = float(c['total'].mean())
+            if not cm:
+                continue
+            for ar in ('1', '2'):
+                g = base[(base.time == t) & (base.area == ar)]
+                if len(g):
+                    ratios.append((t, ar, float(g['total'].mean()) / cm))
+        if not ratios:
+            continue
+        R = float(np.mean([r[2] for r in ratios]))
+        lo = float(np.min([r[2] for r in ratios]))
+        hi = float(np.max([r[2] for r in ratios]))
+        for t in TIMES:
+            c = base[(base.time == t) & (base.area == 'c')]
+            real = len(c) and not ('red_only' in c.columns and bool(c['red_only'].any()))
+            if real:
+                continue
+            vals = [float(base[(base.time == t) & (base.area == ar)]['total'].mean())
+                    for ar in ('1', '2')
+                    if len(base[(base.time == t) & (base.area == ar)])]
+            if not vals:
+                continue
+            mt = float(np.mean(vals))
+            EST[(sp_label, t)] = dict(
+                ratio=R, lo=lo, hi=hi, treated=mt, c=mt / R, c_lo=mt / hi, c_hi=mt / lo,
+                n_pairs=len(ratios),
+                basis='; '.join('%s@%s %.3f' % ('LIPSS' if r[1] == '1' else 'Nano', r[0], r[2])
+                                for r in ratios))
+            x = R2[sp_label]
+            x = x[~((x.time == t) & (x.area == 'c'))]
+            e = EST[(sp_label, t)]
+            row = dict(repeat='repeat 2 (control inferred)', time=t, area='c', num=0,
+                       g_image='', r_image='', live=np.nan, dead=e['c'], total=e['c'],
+                       dead_rate=np.nan, red_only=False)
+            R2[sp_label] = pd.concat([x, pd.DataFrame([row])], ignore_index=True)
+            print('inferred control: %s %s -> %.0f cells/field (range %.0f-%.0f); treated mean %.0f,'
+                  ' pooled treated:control ratio %.3f from %d pairs'
+                  % (sp_label, t, e['c'], e['c_lo'], e['c_hi'], mt, R, len(ratios)))
+    if EST:
+        pd.DataFrame([dict(species=k[0], time=k[1], treated_mean=v['treated'],
+                           ratio_mean=v['ratio'], ratio_min=v['lo'], ratio_max=v['hi'],
+                           n_pairs=v['n_pairs'], control_est=v['c'], control_lo=v['c_lo'],
+                           control_hi=v['c_hi'], basis=v['basis'])
+                      for k, v in sorted(EST.items())]).to_csv(
+            os.path.join(a.out, '650nm_control_inference.csv'), index=False, encoding='utf-8-sig')
+
     suffix = '_TEMPLATE' if a.demo else ''
     # ---------------- A. repeat-2 figure ----------------
     fig, axes = plt.subplots(2, 2, figsize=(14.2, 9.6), dpi=200)
@@ -465,12 +593,13 @@ def main():
         rows.append(st)
         b_set = {t for sp, t in borrow if _norm(sp) == _norm(sp_label)}
         v_set = {t for sp, t in viab_r1 if _norm(sp) == _norm(sp_label)}
+        e_set = {t for sp, t in EST if _norm(sp) == _norm(sp_label)}
         panel_stacked(axes[i, 0], st, times, AREAS,
                       '(%s) %s - live + dead density (stacked)' % ('ac'[i], sp_label),
-                      borrowed=b_set, viab_borrowed=v_set)
+                      borrowed=b_set, viab_borrowed=v_set, est_times=e_set)
         panel_total(axes[i, 1], rawT, st, times, AREAS,
                     '(%s) %s - total-cell adhesion (labels = anti-adhesion %%)'
-                    % ('bd'[i], sp_label), borrowed=b_set, viab_borrowed=v_set)
+                    % ('bd'[i], sp_label), borrowed=b_set, viab_borrowed=v_set, est_times=e_set)
     fig.suptitle('650 nm textured stainless steel - LIVE/DEAD, repeat 2', fontsize=12.5, y=0.975)
     figure_legend(fig, y=0.062)
     note = ('ImageJ 1.54 adaptive threshold (bg mode + 40), size 3-500 px; 40x field area 46 946 um2; '
@@ -483,6 +612,7 @@ def main():
                  '(no green channel, red counted as total): the total-cell bar is repeat 2, the '
                  'viability/live-dead bars are taken from repeat 1 ('
                  + '; '.join('%s %s' % (s, t) for s, t in sorted(viab_r1)) + ').')
+    note += est_note(EST)
     note += '  Extra coupon (sample 3) is excluded from every statistic on this figure.'
     footer(fig, note, a.demo)
     fig.tight_layout(rect=(0, 0.085, 1, 0.95))
@@ -507,18 +637,20 @@ def main():
             rows.append(cd)
             b_set = {t for sp, t in borrow if _norm(sp) == _norm(sp_label)}
             v_set = {t for sp, t in viab_r1 if _norm(sp) == _norm(sp_label)}
+            e_set = {t for sp, t in EST if _norm(sp) == _norm(sp_label)}
             marks = not a.no_marks
             if a.plain:
                 b_set, v_set = set(), set()
             panel_stacked_combined(axes[i, 0], cd, times,
                                    '(%s) %s - live + dead density, repeats 1 + 2'
-                                   % ('ac'[i], sp_label), marks=marks)
+                                   % ('ac'[i], sp_label), marks=marks, est_times=e_set)
             panel_total_combined(axes[i, 1], cd, times,
                                  '(%s) %s - total-cell adhesion, repeats 1 + 2'
-                                 % ('bd'[i], sp_label), borrowed=b_set | v_set, marks=marks)
+                                 % ('bd'[i], sp_label), borrowed=b_set | v_set, marks=marks,
+                                 est_times=e_set)
         fig.suptitle('650 nm textured stainless steel - LIVE/DEAD, repeats 1 + 2 combined',
                      fontsize=12.5, y=0.975)
-        figure_legend(fig, with_repeats=marks, y=0.062)
+        figure_legend(fig, with_repeats=marks, y=0.088 if EST else 0.062)
         if a.plain:
             note = ('Bars = mean of the two repeat means; error bars on the adhesion panels = SD of '
                     'the two repeats (stacked panels show the mean viability only); '
@@ -527,6 +659,7 @@ def main():
                     '3-500 px, 40x field area 46 946 um2, n = 5 fields per condition. '
                     'S. aureus 7 h control and 24 h control viability are from repeat 1 '
                     '(repeat-2 control missing / contaminated), so those two bars are qualitative.')
+            note += est_note(EST)
             if a.drop_r1:
                 bits = []
                 for tok in a.drop_r1:
@@ -554,9 +687,11 @@ def main():
                      'that was re-shot as sample 3 in repeat 2 (Figure 3): the combined viability of '
                      'that single bar mixes a superseded value with a normal one - quote the two '
                      'repeats separately there.')
+            note += est_note(EST)
             note += '  Extra coupon (sample 3) excluded.'
-        footer(fig, note, a.demo)
-        fig.tight_layout(rect=(0, 0.085, 1, 0.95))
+        footer(fig, note, a.demo, y=0.004, fontsize=6.8 if EST else 7.1,
+               width=190 if EST else 168)
+        fig.tight_layout(rect=(0, 0.125 if EST else 0.085, 1, 0.95))
         pB = os.path.join(a.out, '650nm_livedead_combined_repeat1_repeat2%s%s.png'
                           % (suffix, '_clean' if a.plain else ''))
         fig.savefig(pB)
