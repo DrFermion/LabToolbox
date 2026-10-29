@@ -359,7 +359,9 @@ def main():
             cap = ('Figure %d. Combined over %s. Right-hand bars = mean of the per-repeat '
                    'anti-adhesion values (each repeat against its own control); empty circle / '
                    'square / triangle = the individual repeat values; error bars = SD across '
-                   'repeats. The pooled values use only the points that survive Table 2.1, so '
+                   'repeats; grey x markers are the per-repeat values removed by the registry '
+                   '(shown, never pooled). The pooled values use only the points that survive '
+                   'Table 2.1, so '
                    'some timepoints rest on two repeats and S. aureus 7 h on one (marked n = 1 in '
                    'Table 4.5); the repeat figures show where the removed points sit.'
                    % (k, ', '.join(labels)))
@@ -367,8 +369,10 @@ def main():
             cap = ('Figure %d. %s. Left: live (green) + dead (red) density from the 5 fields; '
                    '%% over the stack = pooled viability. Right: anti-adhesion for total cells '
                    '(solid) and live cells (pale); error bars = delta-method SD of the field '
-                   'means. A grey dashed box marked EXCLUDED is a point removed from the analysis '
-                   '- no bar, no statistic.' % (k, lb))
+                   'means. A grey hatched bar tagged EXCLUDED is a point removed from the '
+                   'analysis: plotted with its measured value for completeness, but not used in '
+                   'any statistic; where the control itself is unusable the slot is shown as a '
+                   'dashed EXCLUDED box instead.' % (k, lb))
             mine = EX[EX['repeat'] == lb] if len(EX) else EX
             if len(mine):
                 bits = []

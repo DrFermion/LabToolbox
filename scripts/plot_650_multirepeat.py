@@ -121,7 +121,9 @@ def apply_drop(store, label, drops):
                   % (label, sp_b, t_b, ar_b, n))
 
 
-def panel_stacked_n(ax, cd, times, title, labels, marks=True, excluded=()):
+def panel_stacked_n(ax, cd, times, title, labels, marks=True, excluded=(), excl_rows=None):
+    """Stacked live/dead density. Excluded slots are still PLOTTED (grey, hatched) so the
+    reader sees the measurement, but they never enter a statistic."""
     xs, groups = _xmap(times, AREAS)
     excluded = set(excluded)
     ymax = 0.0
@@ -134,8 +136,32 @@ def panel_stacked_n(ax, cd, times, title, labels, marks=True, excluded=()):
             v = cd[col].max(skipna=True)
             if np.isfinite(v):
                 ymax = max(ymax, float(v))
+    if excl_rows is not None and len(excl_rows):
+        v = (excl_rows['live_cm2'].fillna(0) + excl_rows['dead_cm2'].fillna(0)).max()
+        if np.isfinite(v):
+            ymax = max(ymax, float(v))
+    v = (cd['live_cm2'].fillna(0) + cd['dead_cm2'].fillna(0)).max()
+    if np.isfinite(v):
+        ymax = max(ymax, float(v))
+    no_data = []
     for (t, a), x in xs.items():
         if (t, a) in excluded:
+            r = (excl_rows[(excl_rows.time == t) & (excl_rows.area == a)]
+                 if excl_rows is not None else None)
+            if r is not None and len(r) and np.isfinite(float(r['live_cm2'].iloc[0])):
+                lv, dd = float(r['live_cm2'].iloc[0]), float(r['dead_cm2'].iloc[0])
+                ax.bar(x, lv, 0.9, color='#BFBFBF', edgecolor='#5F5F5F', linewidth=0.5,
+                       hatch='///', zorder=3)
+                ax.bar(x, dd, 0.9, bottom=lv, color='#E6E6E6', edgecolor='#5F5F5F',
+                       linewidth=0.5, hatch='///', zorder=3)
+                if np.isfinite(float(r['viability'].iloc[0])):
+                    ax.text(x, lv + dd + ymax * 0.012, '%.0f%%' % float(r['viability'].iloc[0]),
+                            ha='center', va='bottom', fontsize=6.8, color='#8A8A8A')
+                ax.text(x, (lv + dd) * 0.5, 'excluded', rotation=90, fontsize=5.6,
+                        color='#4F4F4F', ha='center', va='center', zorder=8,
+                        bbox=dict(boxstyle='round,pad=0.1', fc='white', ec='none', alpha=0.7))
+            else:
+                no_data.append((t, a))
             continue
         g = cd[(cd.time == t) & (cd.area == a)]
         if g.empty or not np.isfinite(float(g['live_cm2'].iloc[0])):
@@ -157,7 +183,8 @@ def panel_stacked_n(ax, cd, times, title, labels, marks=True, excluded=()):
             ax.text(x, lv + dd + ymax * 0.012, '%.0f%%' % float(g['viability'].iloc[0]),
                     ha='center', va='bottom', fontsize=6.8, color='#444444')
     ax.set_ylim(0, ymax * 1.14 if ymax else 1)
-    _mark_excluded(ax, xs, excluded, 0.0, (ax.get_ylim()[1] if ymax else 1) * 0.92)
+    if no_data:
+        _mark_excluded(ax, xs, no_data, 0.0, ax.get_ylim()[1] * 0.92)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, p: '{:,.0f}'.format(v)))
     _time_labels(ax, times, xs, groups, AREAS)
     ax.set_ylabel('Cell density (cells/cm$^2$)', fontsize=9)
@@ -321,6 +348,7 @@ def main():
 
     print('repeats:', ', '.join('%s <- %s' % (lb, dirs[lb]) for lb in labels))
     store = {lb: load_repeat(dirs[lb], a.exclude_3) for lb in labels}
+    store_full = {lb: {sp: d.copy() for sp, d in store[lb].items()} for lb in labels}
     if EXCL:
         for lb in labels:
             for sp, raw in list(store[lb].items()):
@@ -446,6 +474,16 @@ def main():
                         print('  [%s] %s %s control <- %s (%d fields, %s)'
                               % (lb, sp_label, t_b, donor, len(donor_rows), kind))
 
+    # same views/tables built from the FULL data: used only to DRAW the excluded points
+    full_tot, full_viab, tables_full = {}, {}, {}
+    for lb in labels:
+        full_tot[lb], full_viab[lb], tables_full[lb] = {}, {}, {}
+        for sp, raw in store_full[lb].items():
+            full_tot[lb][sp] = raw
+            full_viab[lb][sp] = raw[raw.live.notna()].copy()
+            times_f = [t for t in TIMES if t in set(raw.time)]
+            tables_full[lb][sp] = display_table(full_tot[lb][sp], full_viab[lb][sp], times_f)
+
     # per-repeat display tables (what figure A uses, focus repeat only)
     tables = {lb: {} for lb in labels}
     for lb in labels:
@@ -520,6 +558,32 @@ def main():
     AA.to_csv(os.path.join(a.out, '650nm_livedead_perrepeat_aa.csv'), index=False,
               encoding='utf-8-sig')
 
+    # AA recomputed on the FULL data, only so the excluded slots can still be drawn.
+    # No anti-adhesion is shown when the CONTROL itself is unusable (never imaged, contaminated
+    # red-only coupon, or excluded): a ratio against a broken control is not a number worth
+    # showing even in grey.
+    AAX = {}
+    excl_ctrl = {(e['repeat'], norm(e['species']), e['time']) for e in EXCL
+                 if e['area'] in ('', 'c')}
+    for lb in labels:
+        for sp_label in tables_full[lb]:
+            cT = full_tot[lb][sp_label]
+            cV = full_viab[lb][sp_label]
+            for t in TIMES:
+                cinfo = cT[(cT.time == t) & (cT.area == 'c')]
+                ctrl_bad = ((lb, norm(sp_label), t) in excl_ctrl
+                            or len(cinfo) == 0
+                            or bool(cinfo['red_only'].any()))
+                for ar in ('1', '2'):
+                    if ctrl_bad:
+                        continue
+                    at, _ = _aa(cT[(cT.time == t) & (cT.area == 'c')]['total'].astype(float),
+                                cT[(cT.time == t) & (cT.area == ar)]['total'].astype(float))
+                    al, _ = _aa(cV[(cV.time == t) & (cV.area == 'c')]['live'].astype(float),
+                                cV[(cV.time == t) & (cV.area == ar)]['live'].astype(float))
+                    if np.isfinite(at) or np.isfinite(al):
+                        AAX[(lb, sp_label, t, ar)] = dict(total=at, live=al)
+
     # ================= figures: left = live/dead density, right = anti-adhesion ========
     # One figure per repeat plus one combined figure. The right-hand panel is the
     # anti-adhesion rate ITSELF (% fewer cells than the control of the same timepoint),
@@ -535,7 +599,7 @@ def main():
             encoding='utf-8-sig')
 
     def aa_panel(ax, aa, sp_label, times, title, labels, marks=True, est_times=(),
-                 excluded=()):
+                 excluded=(), excl_aa=None):
         """Grouped anti-adhesion bars: per area a solid (total cells) + lighter (live cells)."""
         excluded_set = set(excluded)
         xbase = {t: i * 3.0 for i, t in enumerate(times)}
@@ -543,6 +607,14 @@ def main():
         for t in times:
             g = aa[(aa.species == sp_label) & (aa.time == t)]
             for ar, dx in (('1', -0.62), ('2', 0.62)):
+                if (t, ar) in excluded_set:
+                    ex = (excl_aa or {}).get((t, ar))
+                    if ex:
+                        for key in ('total', 'live'):
+                            v = ex.get(key, np.nan)
+                            if np.isfinite(v):
+                                vals.append((v, v))
+                    continue
                 r = g[g.area == ar]
                 if r.empty:
                     continue
@@ -558,10 +630,37 @@ def main():
         span = max(ymax - ymin, 10.0)
         ymin, ymax = ymin - span * 0.14, ymax + span * 0.16
 
+        no_aa = set()
         for t in times:
             g = aa[(aa.species == sp_label) & (aa.time == t)]
             for ar, dx in (('1', -0.62), ('2', 0.62)):
                 if (t, ar) in excluded_set:
+                    # still show the measurement: grey, hatched, never used in a statistic
+                    ex = (excl_aa or {}).get((t, ar))
+                    if ex and (np.isfinite(ex['total']) or np.isfinite(ex['live'])):
+                        for key, w, off, alpha in (('total', 0.42, -0.22, 1.0),
+                                                   ('live', 0.30, 0.25, 0.45)):
+                            v = ex[key]
+                            if not np.isfinite(v):
+                                continue
+                            x = xbase[t] + dx + off
+                            ax.bar(x, v, w, color='#BFBFBF' if key == 'total' else '#E6E6E6',
+                                   edgecolor='#5F5F5F', linewidth=0.45, hatch='///',
+                                   alpha=alpha, zorder=3)
+                            if key == 'total' and abs(v) >= 3:
+                                ylab = v + (span * 0.015 if v >= 0 else -span * 0.015)
+                                ax.text(x, ylab, '%.0f' % v, ha='center',
+                                        va='bottom' if v >= 0 else 'top', fontsize=6.2,
+                                        color='#7A7A7A', zorder=7,
+                                        bbox=dict(boxstyle='round,pad=0.12', fc='white',
+                                                  ec='none', alpha=0.85))
+                        ax.text(xbase[t] + dx, ymax * 0.92, 'excluded', rotation=90,
+                                fontsize=5.6, color='#4F4F4F', ha='center', va='top',
+                                zorder=8,
+                                bbox=dict(boxstyle='round,pad=0.1', fc='white', ec='none',
+                                          alpha=0.75))
+                    else:
+                        no_aa.add((t, ar))
                     continue
                 r = g[g.area == ar]
                 if r.empty:
@@ -601,8 +700,9 @@ def main():
         ax.axhline(0, color='black', linewidth=0.9)
         ax.set_ylim(ymin, ymax)
         xs_ex = {(t, ar): xbase[t] + (-0.62 if ar == '1' else 0.62)
-                 for (t, ar) in excluded_set if t in xbase and ar in ('1', '2')}
-        _mark_excluded(ax, xs_ex, {k for k in excluded_set if k[1] in ('1', '2')}, ymin, ymax)
+                 for (t, ar) in no_aa if t in xbase and ar in ('1', '2')}
+        if xs_ex:
+            _mark_excluded(ax, xs_ex, set(xs_ex), ymin, ymax, label='EXCLUDED')
         ax.set_xticks([xbase[t] + dx for t in times for dx in (-0.62, 0.62)])
         ax.set_xticklabels(['LIPSS' if dx < 0 else 'Nano' for t in times for dx in (-0.62, 0.62)],
                            fontsize=7.2)
@@ -619,6 +719,8 @@ def main():
         h = [Patch(facecolor='#777777', edgecolor='#444444', label='Total cells (live + dead)'),
              Patch(facecolor='#777777', edgecolor='#888888', alpha=0.32,
                    label='Live cells only'),
+             Patch(facecolor='#BFBFBF', edgecolor='#5F5F5F', hatch='///',
+                   label='Excluded (shown, not used)'),
              Patch(facecolor=SURF_COLOR['1'], edgecolor='black', label='LIPSS area'),
              Patch(facecolor=SURF_COLOR['2'], edgecolor='black', label='Nanopillar area'),
              Patch(facecolor=C_LIVE, edgecolor='black', label='Live'),
@@ -697,17 +799,60 @@ def main():
                         ex_slots.add((e['time'], e['area']))
                     else:
                         ex_slots.update((e['time'], ar) for ar in AREAS)
+            excl_rows = (None if is_comb
+                         else tables_full.get(lb, {}).get(sp_label))
+            excl_aa = (None if is_comb else
+                       {(k[2], k[3]): v for k, v in AAX.items()
+                        if k[0] == lb and k[1] == sp_label})
             panel_stacked_n(axes[i, 0], st, times,
                             '(%s) %s - live + dead density (cells/cm$^2$)'
                             % ('ac'[i], sp_label),
                             labels if is_comb else [], marks=not a.no_marks,
-                            excluded=ex_slots)
+                            excluded=ex_slots, excl_rows=excl_rows)
             est_times = {k[2] for k in EST if k[0] == lb and norm(k[1]) == norm(sp_label)}
             marks = (not a.no_marks) and is_comb
             aa_panel(axes[i, 1], AA, sp_label, times,
                      '(%s) %s - anti-adhesion vs the control of the same timepoint'
                      % ('bd'[i], sp_label), labels if is_comb else [], marks=marks,
-                     est_times=est_times, excluded=ex_slots)
+                     est_times=est_times, excluded=ex_slots, excl_aa=excl_aa)
+        if is_comb:
+            # show, in grey, the per-repeat values that the registry removed: visible but not
+            # part of any bar, mean or error bar
+            for j, lbx in enumerate(labels):
+                tf = tables_full.get(lbx, {})
+                for _, sp_label in SPECIES:
+                    if sp_label not in tf:
+                        continue
+                    axx = (axes[0, 0] if sp_label == 'E. coli' else axes[1, 0])
+                    aax = (axes[0, 1] if sp_label == 'E. coli' else axes[1, 1])
+                    tr = tf[sp_label]
+                    dx_t = {t: i * 3.0 for i, t in enumerate(
+                        [x for x in TIMES if x in set(tr.time)])}
+                    dx_a = {t: i * 3.0 for i, t in enumerate(
+                        [x for x in TIMES if x in set(tr.time)])}
+                    for e in EXCL:
+                        if e['repeat'] != lbx or norm(e['species']) != norm(sp_label):
+                            continue
+                        areas = [e['area']] if e['area'] else AREAS
+                        for ar in areas:
+                            if ar not in ('1', '2') and ar != 'c':
+                                continue
+                            g = tr[(tr.time == e['time']) & (tr.area == ar)]
+                            if len(g) and np.isfinite(float(g['total_cm2'].iloc[0])) \
+                                    and e['time'] in dx_t:
+                                x = dx_t[e['time']] + AREAS.index(ar) * 1.05 - 1.05
+                                axx.plot(x + mark_dx(len(labels), j),
+                                         float(g['total_cm2'].iloc[0]), marker='x',
+                                         markersize=5.0, markeredgewidth=1.2,
+                                         color='#9E9E9E', zorder=7)
+                            k = (lbx, sp_label, e['time'], ar)
+                            if ar in ('1', '2') and k in AAX and e['time'] in dx_a:
+                                v = AAX[k]['total']
+                                if np.isfinite(v):
+                                    x = dx_a[e['time']] + (-0.62 if ar == '1' else 0.62) - 0.22
+                                    aax.plot(x + mark_dx(len(labels), j), v, marker='x',
+                                             markersize=5.0, markeredgewidth=1.2,
+                                             color='#9E9E9E', zorder=7)
         ttl = ('650 nm textured stainless steel - LIVE/DEAD, %s' % lb if not is_comb else
                '650 nm textured stainless steel - LIVE/DEAD, %s combined'
                % ' + '.join(labels))
@@ -741,7 +886,9 @@ def main():
                         % (k[0], k[1], ', '.join(sorted({x['repeat'] for x in v})),
                            '; '.join(sorted({x['issue'] for x in v})))
                         for k, v in sorted(by_t.items())]
-                note += ('  EXCLUDED DATA (not used in any statistic; grey dashed box in the repeat figures): '
+                note += ('  EXCLUDED DATA (grey x markers = the per-repeat values that the registry '
+                         'removed; they are shown for completeness but are not part of any bar, '
+                         'mean or error bar): '
                          + '; '.join(bits) + '.')
             elif ex_lbl:
                 bits = ['%s %s %s - %s'
