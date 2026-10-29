@@ -41,14 +41,10 @@ SP_DIR = {'E. coli': 'E.coli', 'S. aureus': 'S.aureus'}
 DOCUMENTED = [
     dict(repeat='repeat 1', species='E. coli', time='7h', area='', level='group',
          issue='ethanol contamination of the sample',
-         detail='Ethanol reached the sample at this incubation point of run 1; the whole '
-                'timepoint is invalid for both organisms.',
-         evidence='user report 2026-10-29'),
-    dict(repeat='repeat 1', species='S. aureus', time='7h', area='', level='group',
-         issue='ethanol contamination of the sample',
-         detail='Same run-1 7 h block as E. coli: ethanol reached the sample, whole timepoint '
-                'invalid.',
-         evidence='user report 2026-10-29'),
+         detail='Ethanol reached the sample at this incubation point of run 1. Only the E. coli '
+                'point is affected; the S. aureus 7 h block of run 1 is valid and stays in the '
+                'analysis.',
+         evidence='user report 2026-10-29 (species-confirmed same day)'),
     dict(repeat='repeat 1', species='S. aureus', time='5h', area='2', level='cell',
          issue='staining artefact (near-zero viability coupon)',
          detail='Nanopillar coupon read live 1-23 / dead 1700-1870 (viability 0.4 %). The '

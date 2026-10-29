@@ -233,8 +233,7 @@ def main():
         'complete; no group uses fewer than 5 fields.' % (240, 24),
         'The only anti-adhesion signal that keeps its direction in every valid repeat is the '
         'S. aureus nanopillar area: %d of 4 timepoints agree, mean anti-adhesion %+.0f to %+.0f %% '
-        '(sd across repeats %.0f-%.0f pp); one timepoint has a single valid repeat only. It is a '
-        'modest effect, not a large one.'
+        '(sd across repeats %.0f-%.0f pp). It is a modest effect, not a large one.'
         % (n_sa_ok, float(np.nanmin(sa_mean)), float(np.nanmax(sa_mean)),
            float(np.nanmin(cons[(cons.species == 'S. aureus') & (cons.area == 'Nanopillar')]['sd'])),
            float(np.nanmax(cons[(cons.species == 'S. aureus') & (cons.area == 'Nanopillar')]['sd']))),
@@ -473,11 +472,10 @@ def main():
     ec = cons[cons.species == 'E. coli']
     add_bullets(doc, [
         'Quotable: S. aureus on the nanopillar area, %+.0f to %+.0f %% fewer total cells than '
-        'the control, same direction in every repeat that survives the exclusion (3 h, 5 h and '
-        '24 h have two to three valid repeats; 7 h has only one, so it is supporting rather than '
-        'independent evidence). Quote it as a small, direction-consistent effect, and state that '
-        'within a single repeat the 5-field variability often keeps the difference from reaching '
-        'p < 0.05 (Table 4.7).'
+        'the control, same direction in every repeat that survives the exclusion (see the n column '
+        'of Table 4.5 for how many repeats each timepoint rests on). Quote it as a small, '
+        'direction-consistent effect, and state that within a single repeat the 5-field '
+        'variability often keeps the difference from reaching p < 0.05 (Table 4.7).'
         % (float(np.nanmin(sa['mean'])), float(np.nanmax(sa['mean']))),
         'Not quotable as an effect: any E. coli number (%d of 8 condition-timepoints change sign '
         'between repeats) and the S. aureus LIPSS series except at 24 h. Report these repeat by '
@@ -491,13 +489,19 @@ def main():
         'not been re-analysed for that question, so treat it as still open rather than settled.', 
     ])
 
+    thin = ['%s %s %s (n = %d)' % (r.species, r.time, r.area, r.n)
+            for _, r in cons[cons.n < len(labels)].iterrows()] if len(cons) else []
+    n_one = cons[cons.n < 2]['n'].count() if len(cons) else 0
     add_bullets(doc, [
-        'What the exclusions changed: S. aureus 7 h is down to a single valid repeat (run 3) and '
-        'S. aureus 5 h nanopillar and 24 h rest on two, so the nanopillar series is consistent in '
-        'direction but its weakest timepoints are no longer independent three-repeat evidence. '
-        'For E. coli the two removed outlier values (run 3, 3 h nanopillar and 5 h LIPSS) make '
-        'those timepoints agree on two repeats; that is a consequence of the exclusion rule, not '
-        'an effect, and E. coli stays "not established".',
+        'What the exclusions cost: %d condition-timepoints rest on fewer than %d repeats'
+        '%s%s. Direction-consistent conclusions therefore rely on two repeats in those cases, '
+        'and where only one repeat is left no consistency statement is made at all. The two '
+        'removed E. coli outlier values make 3 h nanopillar and 5 h LIPSS agree on two repeats; '
+        'that follows from the exclusion rule, not from an effect, so E. coli stays "not '
+        'established".'
+        % (len(thin), len(labels),
+           (' (' + '; '.join(thin) + ')') if thin else '',
+           '; %d timepoint(s) have a single repeat' % n_one if n_one else ''),
     ])
 
     # ---------------------------------------------------------------- 6. QC
@@ -522,8 +526,9 @@ def main():
         'pixel-identical in format.',
         'Excluded points are not replaced by estimates or by values borrowed from another '
         'repeat: the affected slots are empty in the figures and listed in Table 2.1. This costs '
-        'degrees of freedom (S. aureus 7 h has a single valid repeat, E. coli 7 h has two) but '
-        'keeps every number in this report a measurement.',
+        'degrees of freedom - nine condition-timepoints now rest on two repeats instead of three '
+        '(five for S. aureus, four for E. coli) - but keeps every number in this report a '
+        'measurement.',
         'The repeat-1 S. aureus 5 h nanopillar coupon read 0.4 % viability; the repeat-2 re-shot '
         'of the same coupon read 50.7 %, so the repeat-1 value is a staining artefact and is '
         'excluded rather than quoted with an uncertainty.',
