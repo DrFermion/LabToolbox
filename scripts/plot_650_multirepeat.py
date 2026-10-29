@@ -386,183 +386,284 @@ def main():
         for sp in store[lb]:
             times = [t for t in TIMES if t in set(tot_view[lb][sp].time)]
             tables[lb][sp] = display_table(tot_view[lb][sp], viab_view[lb][sp], times)
+        # one summary CSV per repeat, so downstream figure/report code never re-prepares data
+        rows_lb = [tables[lb][sp].assign(species=sp) for _, sp in SPECIES if sp in tables[lb]]
+        if rows_lb:
+            pd.concat(rows_lb).to_csv(
+                os.path.join(a.out, '650nm_livedead_%s_summary.csv' % lb.replace(' ', '')),
+                index=False, encoding='utf-8-sig')
 
-    # ---------------- A. focus repeat ----------------
-    fig, axes = plt.subplots(2, 2, figsize=(14.2, 9.6), dpi=200)
-    rows = []
-    for i, (sp_dir, sp_label) in enumerate(SPECIES):
-        if sp_label not in tables[focus]:
-            continue
-        st = tables[focus][sp_label]
-        times = [t for t in TIMES if t in set(st.time)]
-        rows.append(st.assign(species=sp_label))
-        base.panel_stacked(axes[i, 0], st, times, AREAS,
-                           '(%s) %s - live + dead density (stacked)' % ('ac'[i], sp_label))
-        base.panel_total(axes[i, 1], tot_view[focus][sp_label], st, times, AREAS,
-                         '(%s) %s - total-cell adhesion (labels = anti-adhesion %%)'
-                         % ('bd'[i], sp_label))
-    fix = []
-    for kind, specs in (('borrowed control', borrows), ('borrowed viability', viabs)):
-        fix += ['%s %s %s <- %s' % (s, t, kind, r.split('=')[-1]) for s, t, r in specs
-                if r.split('=')[0].strip() == focus]
-    ttl = '650 nm textured stainless steel - LIVE/DEAD, %s' % focus
-    fig.suptitle(ttl + (' (control borrowed: ' + '; '.join(fix) + ')' if fix else ''),
-                 fontsize=12.5, y=0.975)
-    base.figure_legend(fig, y=0.062)
-    note = ('ImageJ 1.54 adaptive threshold (background mode + 40), size 3-500 px; 40x field area '
-            '46 946 um2; bars = mean of 5 fields; % over stacked bars = pooled viability; '
-            'error bars = SD of the 5 fields; % over adhesion bars = anti-adhesion vs the '
-            'control of the same timepoint.')
-    if fix:
-        note += '  Borrowed values: ' + '; '.join(fix) + ' (different coupon batch, qualitative only).'
-    if a.exclude_3:
-        note += '  Extra re-shot coupon (sample 3) excluded from every statistic.'
-    footer(fig, note, False)
-    fig.tight_layout(rect=(0, 0.085, 1, 0.95))
-    pA = os.path.join(a.out, '650nm_livedead_%s.png' % focus.replace(' ', ''))
-    fig.savefig(pA)
-    plt.close(fig)
-    pd.concat(rows).to_csv(os.path.join(a.out, '650nm_livedead_%s_summary.csv'
-                                        % focus.replace(' ', '')), index=False,
-                           encoding='utf-8-sig')
-    print('figure:', pA)
+    # ---------------- per-repeat anti-adhesion, total + live, with delta-method SD ----
+    def _aa(ctrl_vals, trt_vals):
+        """Anti-adhesion + delta-method SD.
 
-    # ---------------- B. combined over all repeats ----------------
-    comb_rows, aa_rows = [], []
+        An inferred control is a SINGLE synthetic row (the estimated level), so the usual
+        two-sample delta method cannot run on it: fall back to propagating only the SD of
+        the treated mean in that case (and say so in the figure footnote)."""
+        trt_vals = trt_vals[np.isfinite(trt_vals)] if len(trt_vals) else trt_vals
+        ctrl_vals = ctrl_vals[np.isfinite(ctrl_vals)] if len(ctrl_vals) else ctrl_vals
+        if len(trt_vals) < 2 or len(ctrl_vals) < 1:
+            return np.nan, np.nan
+        if len(ctrl_vals) >= 2:
+            v, sd = base.aa_with_sd(ctrl_vals, trt_vals)
+            return float(v), float(sd)
+        c = float(np.mean(ctrl_vals))
+        if not c:
+            return np.nan, np.nan
+        m = float(np.mean(trt_vals))
+        se = float(np.std(trt_vals, ddof=1)) / np.sqrt(len(trt_vals))
+        return (c - m) / c * 100.0, 100.0 * se / c
+
+    aa_rows = []
     for sp_dir, sp_label in SPECIES:
         have = [lb for lb in labels if sp_label in tables[lb]]
         if not have:
             continue
         times = [t for t in TIMES if any(t in set(tables[lb][sp_label].time) for lb in have)]
         for t in times:
-            for ar in AREAS:
-                per = {}
-                for lb in have:
-                    st = tables[lb][sp_label]
-                    g = st[(st.time == t) & (st.area == ar)]
-                    if g.empty:
-                        continue
-                    per[lb] = dict(live=float(g['live_cm2'].iloc[0]),
-                                   dead=float(g['dead_cm2'].iloc[0]),
-                                   total=float(g['total_cm2'].iloc[0]),
-                                   viab=float(g['viability'].iloc[0]))
-                if not per:
-                    continue
-                def mn(key):
-                    v = [x[key] for x in per.values() if np.isfinite(x[key])]
-                    return (float(np.mean(v)) if v else np.nan,
-                            float(np.std(v, ddof=1)) if len(v) > 1 else np.nan, len(v))
-                live, live_sd, _ = mn('live')
-                dead, dead_sd, _ = mn('dead')
-                total, total_sd, n_tot = mn('total')
-                viab, _, _ = mn('viab')
-                row = dict(species=sp_label, time=t, area=ar, n_repeats=n_tot,
-                           live_cm2=live, live_sd=live_sd, dead_cm2=dead, dead_sd=dead_sd,
-                           total_cm2=total, total_cm2_sd=total_sd, viability=viab,
-                           repeats=','.join(per))
-                for j, lb in enumerate(labels):
-                    p = per.get(lb, {})
-                    row['r_%d_live' % j] = p.get('live', np.nan)
-                    row['r_%d_total' % j] = p.get('total', np.nan)
-                    row['r_%d_viab' % j] = p.get('viab', np.nan)
-                comb_rows.append(row)
-        # per-repeat + combined anti-adhesion (total cells)
-        cd = pd.DataFrame([r for r in comb_rows if r['species'] == sp_label])
-        for t in times:
-            cc = cd[(cd.time == t) & (cd.area == 'c')]
-            if cc.empty:
-                continue
-            c_tot = float(cc['total_cm2'].iloc[0])
             for ar in ('1', '2'):
                 row = dict(species=sp_label, time=t, area=ar)
-                for j, lb in enumerate(labels):
-                    col = 'r_%d_total' % j
-                    v = float(cd[(cd.time == t) & (cd.area == ar)][col].iloc[0])
-                    vc = float(cd[(cd.time == t) & (cd.area == 'c')][col].iloc[0])
-                    row['%s_AA%%' % lb] = ((vc - v) / vc * 100.0) if (vc and np.isfinite(vc)
-                                                                     and np.isfinite(v)) else np.nan
-                g = cd[(cd.time == t) & (cd.area == ar)]
-                v = float(g['total_cm2'].iloc[0])
-                row['combined_AA%'] = ((c_tot - v) / c_tot * 100.0) if c_tot else np.nan
+                tot_v, live_v, tot_sd, live_sd = [], [], [], []
+                for lb in have:
+                    cT = tot_view[lb][sp_label]
+                    cV = viab_view[lb][sp_label]
+                    at, ats = _aa(cT[(cT.time == t) & (cT.area == 'c')]['total'].astype(float),
+                                  cT[(cT.time == t) & (cT.area == ar)]['total'].astype(float))
+                    al, als = _aa(cV[(cV.time == t) & (cV.area == 'c')]['live'].astype(float),
+                                  cV[(cV.time == t) & (cV.area == ar)]['live'].astype(float))
+                    row['%s_AA%%' % lb] = at
+                    row['%s_AA%%_sd' % lb] = ats
+                    row['%s_AAlive%%' % lb] = al
+                    row['%s_AAlive%%_sd' % lb] = als
+                    tot_v.append(at)
+                    live_v.append(al)
+                    tot_sd.append(ats)
+                    live_sd.append(als)
+                row['combined_AA%'] = float(np.nanmean(tot_v)) if np.isfinite(tot_v).any() else np.nan
+                row['combined_AAlive%'] = float(np.nanmean(live_v)) if np.isfinite(live_v).any() else np.nan
+                row['aa'] = row['combined_AA%']
+                row['aa_sd'] = (float(np.nanstd(tot_v, ddof=1))
+                                if np.isfinite(tot_v).sum() > 1 else np.nan)
+                row['aa_live'] = row['combined_AAlive%']
+                row['aa_live_sd'] = (float(np.nanstd(live_v, ddof=1))
+                                     if np.isfinite(live_v).sum() > 1 else np.nan)
+                row['n_aa'] = int(np.isfinite(tot_v).sum())
+                row['repeats'] = ','.join(have)
                 aa_rows.append(row)
-
-    COMB = pd.DataFrame(comb_rows)
     AA = pd.DataFrame(aa_rows)
-    # Anti-adhesion is averaged over the per-repeat values (each repeat against its OWN
-    # control) instead of one AA from the pooled totals: repeat batches differ by up to 2x
-    # in absolute density, so a pooled control mixes coupons that are not comparable.
-    if len(AA):
-        aa_cols = [c for c in AA.columns if c.endswith('_AA%') and c != 'combined_AA%']
-        AA['aa'] = AA[aa_cols].mean(axis=1)
-        AA['aa_sd'] = AA[aa_cols].std(axis=1, ddof=1)
-        AA['n_aa'] = AA[aa_cols].notna().sum(axis=1)
-        COMB = COMB.merge(AA[['species', 'time', 'area', 'aa', 'aa_sd', 'n_aa']],
-                          on=['species', 'time', 'area'], how='left')
-    COMB.to_csv(os.path.join(a.out, '650nm_livedead_combined_summary.csv'), index=False,
-                encoding='utf-8-sig')
-    AA.to_csv(os.path.join(a.out, '650nm_livedead_perrepeat_aa.csv'),
-              index=False, encoding='utf-8-sig')
-    if len(labels) > 1:
+    AA.to_csv(os.path.join(a.out, '650nm_livedead_perrepeat_aa.csv'), index=False,
+              encoding='utf-8-sig')
+
+    # ================= figures: left = live/dead density, right = anti-adhesion ========
+    # One figure per repeat plus one combined figure. The right-hand panel is the
+    # anti-adhesion rate ITSELF (% fewer cells than the control of the same timepoint),
+    # not the density with a percentage label: positive up = fewer cells than control,
+    # negative down = more cells than control.
+    if EST:
+        pd.DataFrame([dict(species=k[1], time=k[2], repeat=k[0], treated_mean=v['treated'],
+                           ratio_mean=v['ratio'], ratio_min=v['lo'], ratio_max=v['hi'],
+                           n_pairs=v['n_pairs'], control_est=v['est'],
+                           control_lo=v['lo_c'], control_hi=v['hi_c'], basis=v['basis'])
+                      for k, v in sorted(EST.items())]).to_csv(
+            os.path.join(a.out, '650nm_control_inference.csv'), index=False,
+            encoding='utf-8-sig')
+
+    def aa_panel(ax, aa, sp_label, times, title, labels, marks=True, est_times=()):
+        """Grouped anti-adhesion bars: per area a solid (total cells) + hatched (live cells)."""
+        xbase = {t: i * 3.0 for i, t in enumerate(times)}
+        ymin, ymax, vals = 0.0, 0.0, []
+        for t in times:
+            g = aa[(aa.species == sp_label) & (aa.time == t)]
+            for ar, dx in (('1', -0.62), ('2', 0.62)):
+                r = g[g.area == ar]
+                if r.empty:
+                    continue
+                for col, sdcol in (('combined_AA%', 'aa_sd'), ('combined_AAlive%', 'aa_live_sd')):
+                    v = r[col].iloc[0]
+                    if not np.isfinite(v):
+                        continue
+                    sd = r[sdcol].iloc[0]
+                    sd = float(sd) if np.isfinite(sd) else 0.0
+                    vals.append((v - sd, v + sd))
+        for lo, hi in vals:
+            ymin, ymax = min(ymin, lo), max(ymax, hi)
+        span = max(ymax - ymin, 10.0)
+        ymin, ymax = ymin - span * 0.14, ymax + span * 0.16
+
+        for t in times:
+            g = aa[(aa.species == sp_label) & (aa.time == t)]
+            for ar, dx in (('1', -0.62), ('2', 0.62)):
+                r = g[g.area == ar]
+                if r.empty:
+                    continue
+                for col, sdcol, w, off, alpha, label_it in (
+                        ('combined_AA%', 'aa_sd', 0.42, -0.22, 1.0, True),
+                        ('combined_AAlive%', 'aa_live_sd', 0.30, 0.25, 0.32, False)):
+                    v = r[col].iloc[0]
+                    if not np.isfinite(v):
+                        continue
+                    sd = r[sdcol].iloc[0]
+                    sd = float(sd) if np.isfinite(sd) else 0.0
+                    x = xbase[t] + dx + off
+                    ax.bar(x, v, w, color=SURF_COLOR[ar], edgecolor='#444444' if label_it
+                           else '#888888', linewidth=0.45, alpha=alpha, zorder=3)
+                    if sd > 0:
+                        ax.errorbar(x, v, yerr=sd, fmt='none', ecolor='#333333',
+                                    elinewidth=0.8, capsize=2.2, zorder=4)
+                    if marks and len(labels) > 1 and label_it:
+                        for j, lb in enumerate(labels):
+                            col_r = '%s_AA%%' % lb
+                            rv = r[col_r].iloc[0] if col_r in r.columns else np.nan
+                            if not np.isfinite(rv):
+                                continue
+                            ax.plot(x, rv, marker=MARKERS[j % len(MARKERS)], markersize=3.2,
+                                    markerfacecolor='white', markeredgecolor='black',
+                                    markeredgewidth=0.75, zorder=6)
+                    if label_it and abs(v) >= 3:
+                        # above/below the error-bar end so the label never sits on a stem
+                        ylab = (v + sd) if v >= 0 else (v - sd)
+                        ax.text(x, ylab + (span * 0.015 if v >= 0 else -span * 0.015),
+                                '%.0f' % v, ha='center',
+                                va='bottom' if v >= 0 else 'top', fontsize=6.2, color='#222222',
+                                zorder=7,
+                                bbox=dict(boxstyle='round,pad=0.12', fc='white', ec='none',
+                                          alpha=0.9))
+        ax.axhline(0, color='black', linewidth=0.9)
+        ax.set_ylim(ymin, ymax)
+        ax.set_xticks([xbase[t] + dx for t in times for dx in (-0.62, 0.62)])
+        ax.set_xticklabels(['LIPSS' if dx < 0 else 'Nano' for t in times for dx in (-0.62, 0.62)],
+                           fontsize=7.2)
+        for t in times:
+            mark = ' $\\S$' if t in est_times else ''
+            ax.text(xbase[t], -0.155, t + mark, transform=ax.get_xaxis_transform(),
+                    ha='center', fontsize=10.5, fontweight='bold')
+        ax.set_xlim(-1.6, (len(times) - 1) * 3.0 + 1.6)
+        ax.set_ylabel('Anti-adhesion (%)   + = fewer cells than control', fontsize=9)
+        ax.set_title(title, fontsize=10.2)
+        ax.grid(axis='y', alpha=0.25)
+
+    def aa_legend(fig, labels, y=0.062):
+        h = [Patch(facecolor='#777777', edgecolor='#444444', label='Total cells (live + dead)'),
+             Patch(facecolor='#777777', edgecolor='#888888', alpha=0.32,
+                   label='Live cells only'),
+             Patch(facecolor=SURF_COLOR['1'], edgecolor='black', label='LIPSS area'),
+             Patch(facecolor=SURF_COLOR['2'], edgecolor='black', label='Nanopillar area'),
+             Patch(facecolor=C_LIVE, edgecolor='black', label='Live'),
+             Patch(facecolor=C_DEAD, edgecolor='black', label='Dead')]
+        for j, lb in enumerate(labels):
+            h.append(plt.Line2D([], [], marker=MARKERS[j % len(MARKERS)], linestyle='none',
+                                markerfacecolor='white', markeredgecolor='black',
+                                label='%s mean' % lb))
+        fig.legend(handles=h, loc='lower center', bbox_to_anchor=(0.5, y), ncol=len(h),
+                   frameon=False, fontsize=8.2, handlelength=1.5, columnspacing=1.3)
+
+    # per-repeat AA table -> one frame per repeat and one combined frame
+    def frame_stats(lb):
+        """Stats table for the left panel: one repeat, or the combined means."""
+        out = {}
+        if lb == 'combined':
+            for _, sp in SPECIES:
+                rows = []
+                for t in TIMES:
+                    for ar in AREAS:
+                        vals = [tables[x][sp][(tables[x][sp].time == t) &
+                                              (tables[x][sp].area == ar)] for x in labels
+                                if sp in tables[x]]
+                        vals = [v for v in vals if len(v)]
+                        if not vals:
+                            continue
+                        def m(col):
+                            v = [float(x[col].iloc[0]) for x in vals
+                                 if np.isfinite(float(x[col].iloc[0]))]
+                            return (float(np.mean(v)) if v else np.nan,
+                                    float(np.std(v, ddof=1)) if len(v) > 1 else np.nan)
+                        live, live_sd = m('live_cm2')
+                        dead, dead_sd = m('dead_cm2')
+                        total, total_sd = m('total_cm2')
+                        viab, _ = m('viability')
+                        rows.append(dict(species=sp, time=t, area=ar, n=len(vals),
+                                         live_cm2=live, live_sd=live_sd, dead_cm2=dead,
+                                         dead_sd=dead_sd, total_cm2=total,
+                                         total_cm2_sd=total_sd, viability=viab,
+                                         total_sd=total_sd))
+                out[sp] = pd.DataFrame(rows)
+        else:
+            for _, sp in SPECIES:
+                if sp in tables.get(lb, {}):
+                    st = tables[lb][sp].copy()
+                    st['total_sd'] = st['total_cm2_sd']
+                    out[sp] = st
+        return out
+
+    for lb in list(labels) + (['combined'] if len(labels) > 1 else []):
+        fs = frame_stats(lb)
+        if not fs:
+            continue
+        is_comb = lb == 'combined'
+        if is_comb:
+            rows_c = [fs[sp].assign(species=sp) for _, sp in SPECIES if sp in fs]
+            pd.concat(rows_c).to_csv(
+                os.path.join(a.out, '650nm_livedead_combined_summary.csv'),
+                index=False, encoding='utf-8-sig')
         fig, axes = plt.subplots(2, 2, figsize=(14.2, 9.6), dpi=200)
-        for i, (sp_dir, sp_label) in enumerate(SPECIES):
-            cd = COMB[COMB.species == sp_label].copy()
-            if cd.empty:
+        for i, (_, sp_label) in enumerate(SPECIES):
+            if sp_label not in fs:
                 continue
-            times = [t for t in TIMES if t in set(cd.time)]
-            marks = not a.no_marks
-            panel_stacked_n(axes[i, 0], cd, times,
-                            '(%s) %s - live + dead density, %s combined'
-                            % ('ac'[i], sp_label, ' + '.join(labels)), labels, marks=marks)
-            notes = []
-            if not a.plain:
-                for kind, specs in (('b', borrows), ('v', viabs)):
-                    for s_b, t_b, rest in specs:
-                        if norm(s_b) == norm(sp_label) and rest.split('=')[0].strip() in labels:
-                            notes.append((t_b, 'c', '$\\ast$' if kind == 'b' else '$\\ddagger$'))
-                for s_b, lb in infers:
-                    if norm(s_b) == norm(sp_label) and lb in labels:
-                        for t_b in times:
-                            if any(k0 == lb and norm(k1) == norm(sp_label) and k2 == t_b
-                                   for k0, k1, k2 in EST):
-                                notes.append((t_b, 'c', '$\\S$'))
-            panel_total_n(axes[i, 1], cd, times,
-                          '(%s) %s - total-cell adhesion, %s combined'
-                          % ('bd'[i], sp_label, ' + '.join(labels)), labels, marks=marks,
-                          notes=notes)
-        fig.suptitle('650 nm textured stainless steel - LIVE/DEAD, %s combined'
-                     % ' + '.join(labels), fontsize=12.5, y=0.975)
-        legend_n(fig, labels if not a.no_marks else [])
-        note = ('Bars = mean of the per-repeat means (each repeat weighted equally); markers = '
-                'the individual repeat means; error bars on the adhesion panels = SD across '
-                'repeats; % over stacked bars = mean viability; % over adhesion bars = mean of '
-                'the per-repeat anti-adhesion values, each repeat against its OWN control '
-                '(batches differ in absolute density; pooling the controls would mix '
-                'non-comparable coupons). ImageJ 1.54, adaptive '
-                'threshold, size 3-500 px, 40x field area 46 946 um2, n = 5 fields per '
-                'condition and repeat.')
-        if not a.plain and (borrows or viabs):
-            note += ('  Control taken from another repeat where the local control was missing or '
-                     'contaminated (marked on the axis); those bars are qualitative only.')
-        if not a.plain and EST:
-            bits = ['%s %s (%s): control not measurable -> estimated %.0f-%.0f cells/field'
-                    % (k[1], k[2], k[0], v['lo_c'], v['hi_c']) for k, v in sorted(EST.items())]
+            st = fs[sp_label]
+            times = [t for t in TIMES if t in set(st.time)]
+            panel_stacked_n(axes[i, 0], st, times,
+                            '(%s) %s - live + dead density (cells/cm$^2$)'
+                            % ('ac'[i], sp_label),
+                            labels if is_comb else [], marks=not a.no_marks)
+            est_times = {k[2] for k in EST if k[0] == lb and norm(k[1]) == norm(sp_label)}
+            marks = (not a.no_marks) and is_comb
+            aa_panel(axes[i, 1], AA, sp_label, times,
+                     '(%s) %s - anti-adhesion vs the control of the same timepoint'
+                     % ('bd'[i], sp_label), labels if is_comb else [], marks=marks,
+                     est_times=est_times)
+        ttl = ('650 nm textured stainless steel - LIVE/DEAD, %s' % lb if not is_comb else
+               '650 nm textured stainless steel - LIVE/DEAD, %s combined'
+               % ' + '.join(labels))
+        fig.suptitle(ttl + ('  (control estimated - see footnote)' if any(
+            k[0] == lb for k in EST) else ''), fontsize=12.5, y=0.975)
+        aa_legend(fig, labels if marks else [], y=0.079)
+        note = ('Left: bars = mean of 5 fields, error bars = SD of the 5 fields, % over the '
+                'stacked bar = pooled viability. Right: anti-adhesion = (N_control - N_surface) '
+                '/ N_control x 100 for total cells (solid) and live cells (hatched); positive = '
+                'fewer cells than the untreated control area of the same coupon, negative = more '
+                'cells than the control. Error bars = delta-method SD')
+        note += (' across the %d repeats; empty markers = the individual repeat AA values and '
+                 'the bar = their mean.' % len(labels) if is_comb else ' of the field means')
+        note += ('. ImageJ 1.54, adaptive threshold (background mode + 40), size 3-500 px, '
+                 '40x field area 46 946 um2, n = 5 fields per condition.')
+        if any(k[0] == lb for k in EST):
+            bits = ['%s %s: control not measurable -> estimated %.0f-%.0f cells/field'
+                    % (k[1], k[2], v['lo_c'], v['hi_c']) for k, v in sorted(EST.items())
+                    if k[0] == lb]
             note += ('  section sign = control inferred from the treated:control ratio at the '
                      'timepoints with a real control - estimate, not a measurement ('
                      + '; '.join(bits) + '); those bars are qualitative only.')
-        if drops and not a.plain:
-            note += '  One repeat-1 measurement was a staining artefact and is excluded from that bar.'
-        footer(fig, note, False)
-        fig.tight_layout(rect=(0, 0.085, 1, 0.95))
-        pB = os.path.join(a.out, '650nm_livedead_combined_%s.png'
-                          % ''.join(lb.replace('repeat', 'r').replace(' ', '') for lb in labels))
-        fig.savefig(pB)
+        drop_hits = [d for d in drops if d[3] == lb]
+        if drop_hits:
+            note += ('  Omitted from this repeat (staining artefact, superseded by the re-shot '
+                     'coupon): ' + '; '.join('%s %s %s'
+                                             % (d[0], d[1], AREA_SHORT.get(d[2], d[2]).replace(chr(10), ' '))
+                                             for d in drop_hits) + '.')
+        if a.exclude_3:
+            note += '  Extra re-shot coupon (sample 3) excluded from every statistic.'
+        footer(fig, note, False, y=0.004, fontsize=6.9, width=178)
+        fig.tight_layout(rect=(0, 0.118, 1, 0.95))
+        name = ('650nm_livedead_combined_%s_AA.png'
+                % ''.join(x.replace('repeat', 'r').replace(' ', '') for x in labels)
+                if is_comb else '650nm_livedead_%s_AA.png' % lb.replace(' ', ''))
+        p = os.path.join(a.out, name)
+        fig.savefig(p)
         plt.close(fig)
-        print('figure:', pB)
+        print('figure:', p)
 
-    # ---------------- C. validation coupon (area 3), only if one exists ----------------
-    any3 = any('3' in set(raw.area) for lb in labels for raw in store[lb].values())
-    if any3:
-        print('area-3 coupon present - see the repeat-2 validation figure for the comparison')
+    AA.to_csv(os.path.join(a.out, '650nm_livedead_perrepeat_aa.csv'), index=False,
+              encoding='utf-8-sig')
+    print('AA table:', os.path.join(a.out, '650nm_livedead_perrepeat_aa.csv'))
 
 
 if __name__ == '__main__':

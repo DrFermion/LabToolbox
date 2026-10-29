@@ -223,20 +223,39 @@ def main():
 
     # 3 --------------------------------------------------------------
     doc.add_heading('3. Figures', level=1)
-    doc.add_heading('Figure 1 - %s on its own' % focus, level=2)
-    add_figure(doc, os.path.join(fig, '650nm_livedead_%s.png' % focus_tag), 16.4,
-               'Figure 1. %s, 650 nm. Left column: live (green) and dead (red) density stacked, '
-               '%% over each bar = pooled viability. Right column: total cells (live + dead) per '
-               'cm2, %% over a treated bar = anti-adhesion against the control of the same '
-               'timepoint. Bars = mean of 5 fields, error bars = SD of the 5 fields. Rows: '
-               'E. coli (a, b) and S. aureus (c, d).' % focus)
-    doc.add_heading('Figure 2 - all repeats combined', level=2)
-    add_figure(doc, os.path.join(fig, '650nm_livedead_combined_r1r2r3.png'), 16.4,
-               'Figure 2. Bars = mean of the per-repeat means (%s); empty circle / square / '
-               'triangle = the individual repeat means; error bars on the adhesion panels = SD '
-               'across repeats; %% over the adhesion bars = mean of the per-repeat AA values. '
-               'Where a repeat had no usable control the value is marked on the axis and is '
-               'qualitative only.' % ', '.join(repeats))
+    doc.add_paragraph('Every figure has the same two columns: left = live/dead density '
+                      '(cells/cm2) with the pooled viability over each bar; right = the '
+                      'anti-adhesion rate itself, (N_control - N_surface)/N_control x 100, for '
+                      'total cells (solid bars) and live cells (pale bars). Positive = fewer cells '
+                      'than the untreated control area of the same coupon, negative = more cells '
+                      'than the control. Figures 1-3 are the individual repeats, Figure 4 is all '
+                      'repeats pooled.')
+    aa_files = [(r, '650nm_livedead_%s_AA.png' % r.replace(' ', '')) for r in repeats]
+    aa_files.append(('combined', '650nm_livedead_combined_%s_AA.png'
+                     % ''.join(r.replace('repeat', 'r').replace(' ', '') for r in repeats)))
+    for k, (r, fn) in enumerate(aa_files, start=1):
+        is_comb = r == 'combined'
+        doc.add_heading('Figure %d - %s' % (k, 'all repeats combined' if is_comb else r), level=2)
+        if is_comb:
+            cap = ('Figure %d. Combined over %s. Bars on the right = mean of the per-repeat '
+                   'anti-adhesion values (each repeat against its OWN control); empty circle / '
+                   'square / triangle = the individual repeat values; error bars = SD across '
+                   'repeats. The left panels show the mean density with the same per-repeat '
+                   'markers.' % (k, ', '.join(repeats)))
+        else:
+            cap = ('Figure %d. %s. Left: live (green) + dead (red) density from the 5 fields, '
+                   '%% over the stack = pooled viability. Right: anti-adhesion for total cells '
+                   '(solid) and live cells (pale); error bars = delta-method SD of the field '
+                   'means. Bars near zero mean no difference from the control.'
+                   % (k, r))
+            if EST is not None and len(EST) and (EST['repeat'] == r).any():
+                ex = EST[EST['repeat'] == r]
+                cap += (' Section sign on the axis = the control at that timepoint could not be '
+                        'measured and was estimated ('
+                        + '; '.join('%s: %.0f-%.0f cells/field'
+                                    % (row['time'], row['control_lo'], row['control_hi'])
+                                    for _, row in ex.iterrows()) + ').')
+        add_figure(doc, os.path.join(fig, fn), 16.4, cap)
 
     # 4 --------------------------------------------------------------
     doc.add_heading('4. Tables', level=1)
