@@ -121,8 +121,9 @@ def apply_drop(store, label, drops):
                   % (label, sp_b, t_b, ar_b, n))
 
 
-def panel_stacked_n(ax, cd, times, title, labels, marks=True):
+def panel_stacked_n(ax, cd, times, title, labels, marks=True, excluded=()):
     xs, groups = _xmap(times, AREAS)
+    excluded = set(excluded)
     ymax = 0.0
     for col in ('live_cm2', 'dead_cm2', 'total_cm2'):
         v = cd[col].max(skipna=True)
@@ -134,6 +135,8 @@ def panel_stacked_n(ax, cd, times, title, labels, marks=True):
             if np.isfinite(v):
                 ymax = max(ymax, float(v))
     for (t, a), x in xs.items():
+        if (t, a) in excluded:
+            continue
         g = cd[(cd.time == t) & (cd.area == a)]
         if g.empty or not np.isfinite(float(g['live_cm2'].iloc[0])):
             continue
@@ -154,6 +157,7 @@ def panel_stacked_n(ax, cd, times, title, labels, marks=True):
             ax.text(x, lv + dd + ymax * 0.012, '%.0f%%' % float(g['viability'].iloc[0]),
                     ha='center', va='bottom', fontsize=6.8, color='#444444')
     ax.set_ylim(0, ymax * 1.14 if ymax else 1)
+    _mark_excluded(ax, xs, excluded, 0.0, (ax.get_ylim()[1] if ymax else 1) * 0.92)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, p: '{:,.0f}'.format(v)))
     _time_labels(ax, times, xs, groups, AREAS)
     ax.set_ylabel('Cell density (cells/cm$^2$)', fontsize=9)
@@ -217,6 +221,21 @@ def panel_total_n(ax, cd, times, title, labels, marks=True, notes=()):
     ax.grid(axis='y', alpha=0.25)
 
 
+def _mark_excluded(ax, xs, excluded, y0, y1, label='EXCLUDED'):
+    """Grey dashed box + tag in a slot removed by the exclusion registry (no data drawn)."""
+    from matplotlib.patches import Rectangle
+    for (t, a) in sorted(excluded):
+        if (t, a) not in xs:
+            continue
+        x = xs[(t, a)]
+        ax.add_patch(Rectangle((x - 0.44, y0), 0.88, y1 - y0, facecolor='#F2F2F2',
+                               edgecolor='#9E9E9E', linestyle=(0, (2, 2)), linewidth=0.9,
+                               zorder=2))
+        ax.text(x, y0 + (y1 - y0) * 0.5, label, rotation=90, fontsize=6.2, color='#7A7A7A',
+                fontweight='bold', ha='center', va='center', zorder=6,
+                bbox=dict(boxstyle='round,pad=0.12', fc='white', ec='none', alpha=0.9))
+
+
 def mark_dx(n, j):
     """Horizontal offset for the n per-repeat markers inside one bar."""
     if n <= 1:
@@ -249,6 +268,9 @@ def main():
     ap.add_argument('--borrow', action='append', default=[], help='"species|time|label=donor"')
     ap.add_argument('--viabfrom', action='append', default=[], help='"species|time|label=donor"')
     ap.add_argument('--infer', action='append', default=[], help='"species|label" (control estimate)')
+    ap.add_argument('--exclusions', default='',
+                    help='CSV registry of excluded points (from build_650_exclusion_registry.py); '
+                         'every listed row/group is removed before any statistic')
     ap.add_argument('--exclude-3', action='store_true')
     ap.add_argument('--no-marks', action='store_true')
     ap.add_argument('--plain', action='store_true')
@@ -265,6 +287,33 @@ def main():
     # input order is kept for the combined figure (repeat 1, 2, 3 ...); --focus only picks
     # which repeat gets its own figure
     dirs = dict(reps)
+    EXCL = []
+    if a.exclusions and os.path.isfile(a.exclusions):
+        ex = pd.read_csv(a.exclusions, encoding='utf-8-sig')
+        ex['area'] = ex['area'].fillna('').astype(str)
+        ex['field'] = pd.to_numeric(ex['field'], errors='coerce')
+
+        def _area_str(v):
+            """'2' / 'c' — the CSV round-trip turns the numeric areas into 2.0."""
+            s = str(v).strip()
+            if s in ('', 'nan', 'None'):
+                return ''
+            try:
+                f = float(s)
+                return str(int(f)) if f.is_integer() else s
+            except ValueError:
+                return s
+
+        for _, r in ex.iterrows():
+            if r['repeat'] not in labels:
+                continue
+            EXCL.append(dict(repeat=r['repeat'], species=str(r['species']),
+                             time=str(r['time']), area=_area_str(r['area']),
+                             field=(None if pd.isna(r['field']) else int(r['field'])),
+                             level=str(r['level']), issue=str(r['issue'])))
+        print('exclusions loaded: %d entries -> %d (repeat, species, time, area) slots'
+              % (len(EXCL), len({(e['repeat'], e['species'], e['time'], e['area']) for e in EXCL})))
+
     drops = [parse_trip(s, 4) for s in a.drop]
     borrows = [parse_trip(s, 3) for s in a.borrow]
     viabs = [parse_trip(s, 3) for s in a.viabfrom]
@@ -272,6 +321,23 @@ def main():
 
     print('repeats:', ', '.join('%s <- %s' % (lb, dirs[lb]) for lb in labels))
     store = {lb: load_repeat(dirs[lb], a.exclude_3) for lb in labels}
+    if EXCL:
+        for lb in labels:
+            for sp, raw in list(store[lb].items()):
+                m = pd.Series(False, index=raw.index)
+                for e in EXCL:
+                    if e['repeat'] != lb or norm(e['species']) != norm(sp):
+                        continue
+                    mm = (raw.time == e['time'])
+                    if e['area']:
+                        mm &= (raw.area == e['area'])
+                    if e['field'] is not None:
+                        mm &= (raw.num == e['field'])
+                    m |= mm
+                n = int(m.sum())
+                if n:
+                    store[lb][sp] = raw[~m].copy()
+                    print('  [%s] %s: removed %d excluded row(s)' % (lb, sp, n))
     for lb in labels:
         print('  [%s] %s' % (lb, ', '.join('%s: %d rows' % (sp, len(d)) for sp, d in store[lb].items())))
         apply_drop(store, lb, drops)
@@ -468,8 +534,10 @@ def main():
             os.path.join(a.out, '650nm_control_inference.csv'), index=False,
             encoding='utf-8-sig')
 
-    def aa_panel(ax, aa, sp_label, times, title, labels, marks=True, est_times=()):
-        """Grouped anti-adhesion bars: per area a solid (total cells) + hatched (live cells)."""
+    def aa_panel(ax, aa, sp_label, times, title, labels, marks=True, est_times=(),
+                 excluded=()):
+        """Grouped anti-adhesion bars: per area a solid (total cells) + lighter (live cells)."""
+        excluded_set = set(excluded)
         xbase = {t: i * 3.0 for i, t in enumerate(times)}
         ymin, ymax, vals = 0.0, 0.0, []
         for t in times:
@@ -493,6 +561,8 @@ def main():
         for t in times:
             g = aa[(aa.species == sp_label) & (aa.time == t)]
             for ar, dx in (('1', -0.62), ('2', 0.62)):
+                if (t, ar) in excluded_set:
+                    continue
                 r = g[g.area == ar]
                 if r.empty:
                     continue
@@ -530,6 +600,9 @@ def main():
                                           alpha=0.9))
         ax.axhline(0, color='black', linewidth=0.9)
         ax.set_ylim(ymin, ymax)
+        xs_ex = {(t, ar): xbase[t] + (-0.62 if ar == '1' else 0.62)
+                 for (t, ar) in excluded_set if t in xbase and ar in ('1', '2')}
+        _mark_excluded(ax, xs_ex, {k for k in excluded_set if k[1] in ('1', '2')}, ymin, ymax)
         ax.set_xticks([xbase[t] + dx for t in times for dx in (-0.62, 0.62)])
         ax.set_xticklabels(['LIPSS' if dx < 0 else 'Nano' for t in times for dx in (-0.62, 0.62)],
                            fontsize=7.2)
@@ -610,17 +683,31 @@ def main():
             if sp_label not in fs:
                 continue
             st = fs[sp_label]
-            times = [t for t in TIMES if t in set(st.time)]
+            ex_times = ({e['time'] for e in EXCL
+                         if e['repeat'] == lb and norm(e['species']) == norm(sp_label)}
+                        if not is_comb else set())
+            # keep the excluded incubation points on the axis so they can be shown as excluded
+            times = [t for t in TIMES if t in set(st.time) or t in ex_times]
+            ex_slots = set()
+            if not is_comb:
+                for e in EXCL:
+                    if e['repeat'] != lb or norm(e['species']) != norm(sp_label):
+                        continue
+                    if e['area']:
+                        ex_slots.add((e['time'], e['area']))
+                    else:
+                        ex_slots.update((e['time'], ar) for ar in AREAS)
             panel_stacked_n(axes[i, 0], st, times,
                             '(%s) %s - live + dead density (cells/cm$^2$)'
                             % ('ac'[i], sp_label),
-                            labels if is_comb else [], marks=not a.no_marks)
+                            labels if is_comb else [], marks=not a.no_marks,
+                            excluded=ex_slots)
             est_times = {k[2] for k in EST if k[0] == lb and norm(k[1]) == norm(sp_label)}
             marks = (not a.no_marks) and is_comb
             aa_panel(axes[i, 1], AA, sp_label, times,
                      '(%s) %s - anti-adhesion vs the control of the same timepoint'
                      % ('bd'[i], sp_label), labels if is_comb else [], marks=marks,
-                     est_times=est_times)
+                     est_times=est_times, excluded=ex_slots)
         ttl = ('650 nm textured stainless steel - LIVE/DEAD, %s' % lb if not is_comb else
                '650 nm textured stainless steel - LIVE/DEAD, %s combined'
                % ' + '.join(labels))
@@ -644,6 +731,27 @@ def main():
                      'timepoints with a real control - estimate, not a measurement ('
                      + '; '.join(bits) + '); those bars are qualitative only.')
         drop_hits = [d for d in drops if d[3] == lb]
+        if EXCL:
+            ex_lbl = [e for e in EXCL if e['repeat'] == lb]
+            if is_comb:
+                by_t = {}
+                for e in EXCL:
+                    by_t.setdefault((e['time'], e['species']), []).append(e)
+                bits = ['%s %s: %s excluded (%s)'
+                        % (k[0], k[1], ', '.join(sorted({x['repeat'] for x in v})),
+                           '; '.join(sorted({x['issue'] for x in v})))
+                        for k, v in sorted(by_t.items())]
+                note += ('  EXCLUDED DATA (not used in any statistic; grey dashed box in the repeat figures): '
+                         + '; '.join(bits) + '.')
+            elif ex_lbl:
+                bits = ['%s %s %s - %s'
+                        % (e['time'], e['species'],
+                           ('whole timepoint' if not e['area']
+                            else AREA_SHORT.get(e['area'], e['area']).replace(chr(10), ' ')),
+                           e['issue'])
+                        for e in ex_lbl]
+                note += ('  EXCLUDED DATA in this repeat (not used in any statistic, shown as a '
+                         'grey cross): ' + '; '.join(bits) + '.')
         if drop_hits:
             note += ('  Omitted from this repeat (staining artefact, superseded by the re-shot '
                      'coupon): ' + '; '.join('%s %s %s'
@@ -651,7 +759,7 @@ def main():
                                              for d in drop_hits) + '.')
         if a.exclude_3:
             note += '  Extra re-shot coupon (sample 3) excluded from every statistic.'
-        footer(fig, note, False, y=0.004, fontsize=6.9, width=178)
+        footer(fig, note, False, y=0.004, fontsize=6.6, width=190)
         fig.tight_layout(rect=(0, 0.118, 1, 0.95))
         name = ('650nm_livedead_combined_%s_AA.png'
                 % ''.join(x.replace('repeat', 'r').replace(' ', '') for x in labels)
