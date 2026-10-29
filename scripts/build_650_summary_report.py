@@ -360,15 +360,30 @@ def main():
             cap = ('Figure %d. Combined over %s. Right-hand bars = mean of the per-repeat '
                    'anti-adhesion values (each repeat against its own control); empty circle / '
                    'square / triangle = the individual repeat values; error bars = SD across '
-                   'repeats.' % (k, ', '.join(labels)))
+                   'repeats. The pooled values use only the points that survive Table 2.1, so '
+                   'some timepoints rest on two repeats and S. aureus 7 h on one (marked n = 1 in '
+                   'Table 4.5); the repeat figures show where the removed points sit.'
+                   % (k, ', '.join(labels)))
         else:
             cap = ('Figure %d. %s. Left: live (green) + dead (red) density from the 5 fields; '
                    '%% over the stack = pooled viability. Right: anti-adhesion for total cells '
                    '(solid) and live cells (pale); error bars = delta-method SD of the field '
-                   'means.' % (k, lb))
-            if EST is not None and len(EST) and (EST['repeat'] == lb).any():
-                cap += (' Section sign on the axis = control not measurable, estimated '
-                        '(S. aureus 7 h and 24 h).')
+                   'means. A grey dashed box marked EXCLUDED is a point removed from the analysis '
+                   '- no bar, no statistic.' % (k, lb))
+            mine = EX[EX['repeat'] == lb] if len(EX) else EX
+            if len(mine):
+                bits = []
+                for _, r in mine.iterrows():
+                    area = '' if pd.isna(r['area']) else str(r['area'])
+                    try:
+                        area = str(int(float(area))) if area not in ('', 'c') else area
+                    except ValueError:
+                        pass
+                    bits.append('%s %s %s (%s)'
+                                % (r['time'], r['species'],
+                                   'whole timepoint' if not area else AREA_LABEL.get(area, area),
+                                   r['issue']))
+                cap += ' Excluded here: ' + '; '.join(bits) + '.'
         add_figure(doc, os.path.join(fig, fn), 16.4, cap)
 
     # ---------------------------------------------------------------- 4. tables
