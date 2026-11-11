@@ -38,7 +38,8 @@ def cmd_sem_texture(args):
     from .semtexture import run as tex_run
     result = tex_run(folder=args.folder, output_dir=args.output,
                      pixel_nm=args.pixel_nm, tile=args.tile, tile_um=args.tile_um,
-                     figures=not args.no_figures, exclude=args.exclude)
+                     figures=not args.no_figures, exclude=args.exclude,
+                     band_nm=args.band_nm)
     print(f"✅ 织构一致性分析完成: {result['n_images']} 张图像, {len(result['stats'])} 组")
     for s in result["stats"]:
         print(f"   {s['group']}: Λ {s['period_mean_nm']:.1f} ± {s['period_sd_nm']:.1f} nm "
@@ -49,7 +50,8 @@ def cmd_sem_texture(args):
         from .semtexture import annotate_folder
         ann = annotate_folder(args.folder, args.annotate_dir,
                               pixel_nm=args.pixel_nm, tile=args.tile,
-                              tile_um=args.tile_um, exclude=args.exclude)
+                              tile_um=args.tile_um, exclude=args.exclude,
+                              band_nm=args.band_nm)
         print(f"   标注图 {ann['n']} 张 → {ann['output_dir']}")
     return 0
 
@@ -191,6 +193,9 @@ def build_parser():
     p.add_argument("--folder", required=True, help="SEM 图像根目录 (子文件夹 = 分组, 如 LIPSS_regions)")
     p.add_argument("--pixel-nm", type=float, default=None, dest="pixel_nm",
                    help="像素尺寸 nm (默认读 JSM *.txt sidecar, 没有则 31.25 = 3k 图)")
+    p.add_argument("--band-nm", type=float, nargs=2, default=None, dest="band_nm",
+                   metavar=("LO", "HI"),
+                   help="允许的条纹周期带 nm (默认 240 800 = 515nm LIPSS 族; 650nm 织构用 380 1200)")
     p.add_argument("--tile-um", type=float, default=2.0, dest="tile_um",
                    help="判定窗边长 (µm, 默认 2 µm = 3k 图上 64 px)")
     p.add_argument("--tile", type=int, default=None,

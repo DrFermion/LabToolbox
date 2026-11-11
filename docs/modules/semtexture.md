@@ -18,7 +18,9 @@
 
 It is the multi-coupon consistency counterpart to [`lipss_dloa`](lipss_dloa.md) (fast whole-field orientation) and [`surfmetrics`](surfmetrics.md) (AFM profiles). Defaults are calibrated on the 515 nm coupon series (2026-11-03).
 
-**Why autocorrelation and not the FFT maximum?** As documented in the module: on 3 k images (31.25 nm/px) the ripple fundamental is ~12 px, but the 2-D FFT power in that band is dominated by the slow illumination envelope at 80–90 px, so "take the strongest peak" returns 450–500 nm instead of the true ~385 nm (the documented v4 defect of the older DLOA pipeline). Averaging intensity samples along the ripple tangent (phase-coherent) and autocorrelating the resulting 1-D profile isolates the fundamental: on six 515 nm coupons it returns 375–395 nm, matching the AFM value 384.6 nm and the v5 ring analysis 378–396 nm.
+**Why autocorrelation and not the FFT maximum?** As documented in the module: on 3 k images (31.25 nm/px) the ripple fundamental is ~12 px, but the 2-D FFT power in that band is dominated by the slow illumination envelope at 80–90 px, so "take the strongest peak" returns 450–500 nm instead of the ripple period (the documented v4 defect of the older DLOA pipeline; Rahner et al. 2026 describe the same peak-switching mechanism and why DC removal plus a Hann window are mandatory). Averaging intensity samples along the ripple tangent (phase-coherent) and autocorrelating the resulting 1-D profile isolates the fundamental and is far more stable.
+
+**Measured, not assumed (2026-11-11 re-run).** `scripts/sem_integrity_crosscheck.py` runs five independent extraction methods on the same six 515 nm LIPSS fields: profile autocorrelation **362.9 ± 3.3 nm** (CV 0.9 %), radial 2-D FFT peak 372.5, 1-D profile FFT 370.5, 2-D autocorrelation 365.1, areal PSD 365.3, naive FFT maximum 373.9. The pixel size was verified three ways (scale bar in the image footer = 32 px/µm, JSM sidecar `SM_MICRON_BAR 32`, this module's 31.25 nm/px default). The SEM result is therefore **5.6 % below the AFM ZSR median 384.6 nm** — the same order as the published technique-to-technique spread (5.1 %, Götte et al. 2025) and *not* a calibration error: matching the AFM value would require 33.11 nm/px (1 µm = 30.2 px), contradicting the instrument. An earlier version of this documentation claimed "375–395 nm, matching AFM 384.6 nm"; that range does not reproduce (repo run of 2026-11-03: 362.95 nm) and the claim has been replaced by the numbers above. Cross-technique agreement must be shown with a **matched-area AFM + SEM** comparison.
 
 ### Conventions and inputs
 
@@ -35,7 +37,7 @@ Default output directory: `output/sem_texture_<YYYYMMDD>/` with `figures/` and `
 
 | File | Content |
 |---|---|
-| `sem_texture_metrics.csv` | One row per field: period (profile/FFT/agreement), orientation and its SD, coherence, contrast, autocorrelation strength, FFT prominence, periods per FOV, debris count/density/area, mode, tile statistics, area fractions, family angles/periods, tile-level period statistics |
+| `sem_texture_metrics.csv` | One row per field: period (profile/FFT/agreement), orientation and its SD, coherence, contrast, autocorrelation strength, FFT prominence, periods per FOV, debris count/density/area, mode, tile statistics, area fractions, family angles/periods, tile-level period statistics, the regularity tuple (`R_lambda1d`, `R_lambda2d`, `gini_period`, `dloa_deg`, `phase_rms_deg`, `phase_coherence`), and the band actually used (`band_lo_nm`, `band_hi_nm`) |
 | `sem_texture_tiles.csv` | One row per tile: `y0`, `x0`, coherence, theta, period, ac strength, contrast, mean intensity, valid flag, family, class, severity, excess ratio, group/file/coupon |
 | `sem_texture_consistency.csv` | One row per group: field/coupon counts, period mean/SD/CV, theta mean/circular SD, coherence, contrast, ordered/bare/disordered means and extremes, debris median, per-check limits and PASS/FAIL, verdict |
 | `sem_texture_checks.json` | The six batch checks (label, column, operator, limit, unit) as JSON |
@@ -69,6 +71,21 @@ Default output directory: `output/sem_texture_<YYYYMMDD>/` with `figures/` and `
     `severity = 0` for ordered tiles, otherwise `clip((r − 1)/1.5, 0, 1)` where `r = max` of the gate ratios (measured/allowed) for period, angle, coherence and autocorrelation — a continuous "how far out of spec" score used for the annotated tint.
 13. **Area fractions** from a rasterised class map (overlapping tiles: worst class wins; priority bare > disordered > excluded > ordered): `ordered_frac`, `disordered_frac`, `bare_frac` = pixel shares of valid pixels; `invalid_frac = 1 − valid/total`.
 14. **Field summary**: `mode`, tile count, `periods_per_window`, `period_tol_used`, family angles/periods, tile period median, MAD-based SD, MAD fraction, IQR, tile period CV, tile `θ` SD, mean tile coherence/contrast; `period_nm` is then set to the dominant family's period with the profile estimate kept as `period_profile_nm`.
+
+### Regularity tuple (per field)
+
+Beyond the classification map, every field reports the quantities the LIPSS-regularity literature actually uses, so results can be compared with published work instead of only with themselves (Rahner et al. 2026 *Appl. Surf. Sci.* 726:165919; Lechthaler et al. 2020 *Sci. Rep.* 10:14516; Sládek et al. 2023 *Materials* 16:2883):
+
+| Column | Definition | Reading |
+|---|---|---|
+| `R_lambda1d` | `1 − robust CV` of the per-tile periods from the **profile autocorrelation** (robust CV = 1.4826·MAD/median) | 1 = identical everywhere, →0 = chaotic |
+| `R_lambda2d` | `1 − robust CV` of the per-tile periods from the **2-D FFT peak** | same scale, sensitive to low-frequency artefacts |
+| `gini_period` | Gini coefficient of the per-tile periods | 0 = uniform, →1 = all spread in one bin |
+| `dloa_deg` | circular SD of the per-tile gradient directions — a **structure-tensor analogue** of OrientationJ's DLOA, not the same estimator | published acceptance: DLOA < 10° = "highly regular" (Sládek 2023) |
+| `phase_rms_deg`, `phase_coherence` | circular RMS (and resultant length) of the fundamental's phase after removing the expected ramp `2π·k₀·s` along the gradient | measures phase locking; on real 515 nm LSFL it is near-decohered (~0.03–0.06 coherence), i.e. use it relatively, not as an absolute pass/fail |
+| `n_tiles_regularity` | number of tiles that entered the calculation | sanity check |
+
+Measured on the six 515 nm LIPSS fields (2026-11-11): `R_lambda1d` = 0.950 ± 0.004, `R_lambda2d` = 0.932 ± 0.073, `gini_period` = 0.033 ± 0.006, `dloa_deg` = 3.39 ± 0.49°, `phase_coherence` = 0.035 ± 0.023. Synthetic validation (perfect grating vs noise vs random phase jumps) is in `tests/test_semtexture_regularity.py`.
 
 ### Batch statistics and consistency criteria
 
@@ -137,8 +154,9 @@ Other constants: `DEFAULT_PIXEL_NM = 31.25`, `BAND_NM = (240, 800)` nm, `HP_SIGM
 | `figures` / `--no-figures` | `True` | Per-image tile maps + summary figure |
 | `verbose` | `True` | Progress printing |
 | `exclude` / `--exclude` | `None` | Path substrings to skip (e.g. another wavelength batch) |
+| `band_nm` / `--band-nm LO HI` | `None` (→ `BAND_NM` = 240–800 nm) | Admissible ripple-period band in nm; use `380 1200` for 650 nm textures, `80 260` for HSFL |
 
-CLI `labtoolbox sem-texture --folder … [--pixel-nm …] [--tile-um …] [--tile …] [--output …] [--exclude …] [--no-figures] [--annotate-dir …]`; GUI tab **🧭 织构一致性** (pixel size blank = auto, window edge µm default 2).
+CLI `labtoolbox sem-texture --folder … [--pixel-nm …] [--band-nm LO HI] [--tile-um …] [--tile …] [--output …] [--exclude …] [--no-figures] [--annotate-dir …]`; GUI tab **🧭 织构一致性** (pixel size blank = auto, window edge µm default 2).
 
 ### Implementation notes
 
@@ -150,7 +168,7 @@ CLI `labtoolbox sem-texture --folder … [--pixel-nm …] [--tile-um …] [--til
 
 ### Assumptions, limitations and known quirks
 
-* **`BAND_NM = (240, 800)` nm is hard-coded** and matches the 515 nm LIPSS family (`0.5λ–1.5λ`); for other wavelengths the admissible-period band must be edited in the source — there is no CLI parameter. Demonstrated in this documentation: the bundled synthetic image (176.8 nm fringe period, below the band) is reported as `Λ ≈ 530 nm` — a reminder to check the band before trusting `Λ`.
+* **`BAND_NM = (240, 800)` nm is the default band** and matches the 515 nm LIPSS family (`0.5λ–1.5λ`). It is now overridable per run (`band_nm` / `--band-nm LO HI`), so 650 nm textures and HSFL no longer need a source edit. The bundled synthetic image (176.8 nm fringe period, below the default band) is reported as `Λ ≈ 530 nm` when the band is left at its default — a reminder to set the band before trusting `Λ`.
 * **Mode and thresholds are calibrated heuristics.** `SINGLE_AC_SPLIT = 0.60`, the two QC presets and the six batch criteria were tuned on the 515 nm series; other textures (pillar lattices, different magnification) may need `qc`/`criteria` overrides.
 * **The classification window is physical (2 µm default) but the high-pass is 20 px**, so the removed illumination scale differs with magnification (0.625 µm at 3 k, 156 nm at 12 k).
 * **Area fractions are pixel fractions of the rasterised class map**; with overlapping tiles the worst class wins per pixel. With the default non-overlapping step they equal the painted area, but `tile_frac_ordered` (count-based) can differ from `ordered_frac` (area-based) when tiles overlap.
@@ -167,7 +185,7 @@ CLI `labtoolbox sem-texture --folder … [--pixel-nm …] [--tile-um …] [--til
 
 * Built-in batch QC: the six criteria + per-check limits and PASS/FAIL (`sem_texture_checks.json`, markdown), ICC(1,1) for replicated fields, visual class maps per field and annotated copies (`annotate_folder`) for human review.
 * The annotated PNG is the intended reviewer artifact: defective areas are tinted by severity but the SEM structure remains visible, and the in-image statistics box documents `Λ`, `C` and area fractions.
-* Validation history (from the module docstring): on six 515 nm coupons the profile-autocorrelation period is 375–395 nm, matching AFM 384.6 nm and the v5 ring analysis 378–396 nm — the reason this method replaced the FFT-maximum DLOA pipeline.
+* Validation history (**corrected 2026-11-11**): the profile-autocorrelation period on the six 515 nm LIPSS fields is **362.9 ± 3.3 nm** (CV 0.9 %), reproducible across two independent runs (this documentation and `output/sem_texture_20261103`, both 362.95 nm on that group). Five alternative extraction methods on the same fields give 365–374 nm. The older claim of "375–395 nm, matching AFM 384.6 nm" **does not reproduce** and was removed: the SEM values sit 5.6 % below the AFM ZSR median, which is the same order as the published technique-to-technique spread (5.1 %, Götte et al. 2025) and cannot be explained by pixel calibration (verified three ways; matching the AFM would need 33.11 nm/px). The regularity tuple is validated on synthetic gratings/noise/phase-jump fields in `tests/test_semtexture_regularity.py`.
 * Reproduced for this documentation (commit `0e0508e`, Python 3.11, NumPy 2.4/SciPy 1.17): `run()` on the single-image `data/examples/sem_test` folder produced `sem_texture_metrics.csv`, `tiles.csv`, `consistency.csv`, `checks.json` and the markdown report; the field period came out `530.4 nm` (profile) vs `673.4 nm` (FFT), `θ = 45.0°`, `C = 0.980`, ordered/disordered/bare = 0/100/0 %, 64 tiles of 64 px (2 µm), verdict `FAIL` (single field → CV/θ-SD not computable; band mismatch of the synthetic 176.8 nm texture as noted above). This illustrates both the output contract and the band limitation.
 
 ### References
@@ -179,7 +197,14 @@ CLI `labtoolbox sem-texture --folder … [--pixel-nm …] [--tile-um …] [--til
 * Bonse J, Höhm S, Kirner SV, Rosenfeld A, Krüger J. Laser-induced periodic surface structures — a scientific evergreen. *IEEE J Sel Top Quantum Electron.* 2017;23(3):9000615. (LIPSS period/λ relation and expected LIPSS morphology)
 * Goldstein JI, Newbury DE, Michael JR, Ritchie NWM, Scott JHJ, Joy DC. *Scanning Electron Microscopy and X-ray Microanalysis.* 4th ed. Springer; 2018. (SEM magnification/scale calibration and JSM sidecar metadata used for `pixel_nm`)
 * Russ JC, Neal FB. *The Image Processing Handbook.* 7th ed. CRC Press; 2016. (texture/structure-tensor and spectral analysis background)
-* ISO 25178-2:2012. *Geometrical product specifications (GPS) — Surface texture: Areal — Part 2: Terms, definitions and surface texture parameters.* ISO, Geneva. (areal-texture terminology context; the ordered/bare area fractions are project-specific, not ISO parameters)
+* ISO 25178-2:2021. *Geometrical product specifications (GPS) — Surface texture: Areal — Part 2: Terms, definitions and surface texture parameters.* ISO, Geneva. 2nd ed. (replaces the withdrawn 25178-2:2012; `Sal` autocorrelation length, `Str` texture aspect ratio and `Std` texture direction are the ISO counterparts of the tile-period dispersion, coherence and orientation reported here; `Sdr` covers developed area from pillars/debris. The ordered/bare area fractions remain project-specific, not ISO parameters.)
+* Rahner E, Thiele T, Voss H, Müller FA, Bonse J, Gräf S. Objective, high-throughput regularity quantification of laser-induced periodic surface structures (LIPSS). *Appl Surf Sci.* 2026;726:165919. doi:10.1016/j.apsusc.2026.165919. (regularity tuple R_Λ,2D / R_Λ / Gini / DLOA / phase; on AISI 316L; documents the window-length and DC-artefact "peak switching" that this module avoids)
+* Lechthaler M, Pauly C, Mücklich F. Objective homogeneity quantification of a periodic surface using the Gini coefficient. *Sci Rep.* 2020;10:14516. doi:10.1038/s41598-020-70758-9. (Gini-based homogeneity used by `gini_period`)
+* Sládek J, et al. Highly regular LIPSS on thin molybdenum films: optimization and generic criteria. *Materials.* 2023;16:2883. doi:10.3390/ma16072883. (published acceptance band: DLOA < 10° = highly regular)
+* Richter AM, Buchberger G, Stifter D, et al. Spatial period of laser-induced surface nanoripples on PET determines *Escherichia coli* repellence. *Nanomaterials.* 2021;11:3000. doi:10.3390/nano11113000. (defensible FFT recipe: subtract mean, Hann window, ±k first-order peaks, Lorentzian fit, Λ = 2/Δk, propagated error)
+* Götte A, Sallese M, Ränke F, Voisiat B, Lasagni AF, Soldera M. Scatterometry-based monitoring of laser-induced periodic surface structures on stainless steel. *Sensors.* 2025;25:5031. doi:10.3390/s25165031. (cross-technique period error 5.1 % — the scale of the SEM-vs-AFM offset discussed above; states that LIPSS quantification is not yet standardised)
+* ISO 5725-1:2023 / ISO 5725-2:2025. *Accuracy (trueness and precision) of measurement methods and results.* ISO, Geneva. (repeatability s_r / reproducibility s_R — the defensible basis for turning the ad-hoc "CV ≤ 3 %" criterion into a derived limit)
+* Koo TK, Li MY. A guideline of selecting and reporting intraclass correlation coefficients for reliability research. *J Chiropr Med.* 2016;15(2):155–163. doi:10.1016/j.jcm.2016.02.012. (ICC reporting practice: quote the 95 % CI lower bound; ≥0.75 usable, ≥0.90 good)
 
 ## 中文
 
@@ -197,7 +222,9 @@ CLI `labtoolbox sem-texture --folder … [--pixel-nm …] [--tile-um …] [--til
 
 它是 [`lipss_dloa`](lipss_dloa.md)（快速整场取向）与 [`surfmetrics`](surfmetrics.md)（AFM 剖面）的多测点一致性对应物。默认值在 515 nm 样片系列上标定（2026-11-03）。
 
-**为什么用自相关而不是 FFT 最大值？** 如模块所述：3k 图（31.25 nm/px）上条纹基频约 12 px，但该频段的二维 FFT 功率被 80–90 px 的慢变照明包络主导，于是"取最强峰"得到 450–500 nm 而不是真实的 ~385 nm（旧 DLOA 流程已记录的 v4 缺陷）。沿条纹切向（相位相干地）平均强度、再对得到的一维剖面做自相关，可以分离出基频：在 6 个 515 nm 样片上返回 375–395 nm，与 AFM 的 384.6 nm 及 v5 环形分析 378–396 nm 吻合。
+**为什么用自相关而不是 FFT 最大值？** 如模块所述：3k 图（31.25 nm/px）上条纹基频约 12 px，但该频段的二维 FFT 功率被 80–90 px 的慢变照明包络主导，于是"取最强峰"得到 450–500 nm 而不是真实条纹周期（旧 DLOA 流程已记录的 v4 缺陷；Rahner 等 2026 也描述了同一 peak-switching 机制，并指出去 DC + Hann 窗是必需步骤）。沿条纹切向（相位相干地）平均强度、再对得到的一维剖面做自相关，可以稳定地分离出基频。
+
+**实测而非假定（2026-11-11 重跑）。** `scripts/sem_integrity_crosscheck.py` 在同样的 6 个 515 nm LIPSS 视野上用五种独立取法：平均剖面自相关 **362.9 ± 3.3 nm**（CV 0.9 %）、径向 2D-FFT 峰 372.5、一维剖面 FFT 370.5、二维自相关 365.1、面积 PSD 365.3、朴素 FFT 最大峰 373.9。像素尺寸已三重核验（图内脚注白条 32 px/µm、JSM sidecar `SM_MICRON_BAR 32`、本模块默认 31.25 nm/px）。因此 SEM 结果比 **AFM ZSR 中位 384.6 nm 低 5.6 %**，与文献中跨技术差异（5.1 %，Götte 等 2025）同量级，且**不是标定错误**：若要与 AFM 对齐需 33.11 nm/px（1 µm = 30.2 px），与仪器自述矛盾。本文件旧版曾声称"375–395 nm，与 AFM 384.6 nm 吻合"，该区间**复现不出来**（仓库 2026-11-03 运行结果 362.95 nm），已用上述实测数字取代。跨技术一致必须靠**同区域 AFM + SEM** 配对测量证明。
 
 ### 约定与输入
 
@@ -214,7 +241,7 @@ CLI `labtoolbox sem-texture --folder … [--pixel-nm …] [--tile-um …] [--til
 
 | 文件 | 内容 |
 |---|---|
-| `sem_texture_metrics.csv` | 每视野一行：周期（剖面/FFT/一致性）、取向及其标准差、相干度、对比度、自相关强度、FFT 显著性、每视野周期数、缺陷计数/密度/面积、模式、分块统计、面积分数、族角度/周期、分块级周期统计 |
+| `sem_texture_metrics.csv` | 每视野一行：周期（剖面/FFT/一致性）、取向及其标准差、相干度、对比度、自相关强度、FFT 显著性、每视野周期数、缺陷计数/密度/面积、模式、分块统计、面积分数、族角度/周期、分块级周期统计，以及规则度元组（`R_lambda1d`、`R_lambda2d`、`gini_period`、`dloa_deg`、`phase_rms_deg`、`phase_coherence`）与实际使用的周期带（`band_lo_nm`、`band_hi_nm`） |
 | `sem_texture_tiles.csv` | 每分块一行：`y0`、`x0`、相干度、theta、周期、ac 强度、对比度、平均强度、有效标志、族、类、severity、excess ratio、group/file/coupon |
 | `sem_texture_consistency.csv` | 每组一行：视野/样片数、周期 mean/SD/CV、theta 均值/圆 SD、相干度、对比度、有序/空白/无序均值与极值、缺陷中位数、各判据限值与 PASS/FAIL、总 verdict |
 | `sem_texture_checks.json` | 六个批次判据（标签、列、运算符、限值、单位）的 JSON |
@@ -248,6 +275,21 @@ CLI `labtoolbox sem-texture --folder … [--pixel-nm …] [--tile-um …] [--til
     `severity = 0`（有序分块），否则 `clip((r − 1)/1.5, 0, 1)`，其中 `r` 是周期、角度、相干度、自相关各门限比值（实测/允许）的最大值——用于标注图的连续"偏离规范程度"分数。
 13. **面积分数**：由栅格化类别图统计（重叠分块按最差类别优先；优先级 空白 > 无序 > 排除 > 有序）：`ordered_frac`、`disordered_frac`、`bare_frac` 为有效像素中的占比；`invalid_frac = 1 − 有效/总数`。
 14. **视野汇总**：`mode`、分块数、`periods_per_window`、`period_tol_used`、各族角度/周期、分块周期中位数、基于 MAD 的 SD、MAD 相对值、IQR、分块周期 CV、分块 `θ` 标准差、分块相干度/对比度均值；随后 `period_nm` 被替换为主导族的周期，剖面估计保留在 `period_profile_nm`。
+
+### 规则度元组（逐视野）
+
+除分类图之外，每个视野还报告"文献真正在用的那几项规则度指标"，以便与已发表结果直接对比（Rahner 等 2026 *Appl. Surf. Sci.* 726:165919；Lechthaler 等 2020 *Sci. Rep.* 10:14516；Sládek 等 2023 *Materials* 16:2883）：
+
+| 列 | 定义 | 读法 |
+|---|---|---|
+| `R_lambda1d` | 分块周期（**剖面自相关**）的 `1 − 稳健 CV`（稳健 CV = 1.4826·MAD/中位） | 1 = 处处相同，→0 = 混乱 |
+| `R_lambda2d` | 分块周期（**二维 FFT 峰**）的 `1 − 稳健 CV` | 同尺度，对低频伪影敏感 |
+| `gini_period` | 分块周期的 Gini 系数 | 0 = 均匀，→1 = 全挤在一个分箱 |
+| `dloa_deg` | 分块梯度方向的圆标准差——OrientationJ 的 DLOA 的**结构张量类比**，非同一估计量 | 文献验收：DLOA < 10° 视为 "highly regular"（Sládek 2023） |
+| `phase_rms_deg`、`phase_coherence` | 扣掉沿梯度的预期斜坡 `2π·k₀·s` 后，基频相位的圆 RMS 与合成长度 | 衡量相位锁定；真实 515 nm LSFL 上接近退相干（相干度 ~0.03–0.06），**只能相对比较，不能当绝对判据** |
+| `n_tiles_regularity` | 参与计算的分块数 | 数据量自检 |
+
+6 个 515 nm LIPSS 视野实测（2026-11-11）：`R_lambda1d` = 0.950 ± 0.004、`R_lambda2d` = 0.932 ± 0.073、`gini_period` = 0.033 ± 0.006、`dloa_deg` = 3.39 ± 0.49°、`phase_coherence` = 0.035 ± 0.023。合成验证（完美光栅 / 纯噪声 / 随机相位跳变）见 `tests/test_semtexture_regularity.py`。
 
 ### 批次统计与一致性判据
 
@@ -316,8 +358,9 @@ R     = |Σ w_j e^{i·2θ_j}| / Σ w_j
 | `figures` / `--no-figures` | `True` | 逐图分块图 + 汇总图 |
 | `verbose` | `True` | 进度打印 |
 | `exclude` / `--exclude` | `None` | 要跳过的路径子串（如另一波长批次） |
+| `band_nm` / `--band-nm LO HI` | `None`（→ `BAND_NM` = 240–800 nm） | 允许条纹周期带（nm）；650 nm 织构用 `380 1200`，HSFL 用 `80 260` |
 
-命令行 `labtoolbox sem-texture --folder … [--pixel-nm …] [--tile-um …] [--tile …] [--output …] [--exclude …] [--no-figures] [--annotate-dir …]`；GUI 标签页 **🧭 织构一致性**（像素尺寸留空 = 自动，判定窗边长 µm 默认 2）。
+命令行 `labtoolbox sem-texture --folder … [--pixel-nm …] [--band-nm LO HI] [--tile-um …] [--tile …] [--output …] [--exclude …] [--no-figures] [--annotate-dir …]`；GUI 标签页 **🧭 织构一致性**（像素尺寸留空 = 自动，判定窗边长 µm 默认 2）。
 
 ### 实现说明
 
@@ -329,7 +372,7 @@ R     = |Σ w_j e^{i·2θ_j}| / Σ w_j
 
 ### 假设、局限与已知怪癖
 
-* **`BAND_NM = (240, 800)` nm 是硬编码的**，对应 515 nm LIPSS 族（`0.5λ–1.5λ`）；其他波长必须在源码里改这个允许周期带——没有 CLI 参数。本文档已演示：自带的合成图（条纹周期 176.8 nm，低于该带）被报成 `Λ ≈ 530 nm`——提醒使用前先核对频带。
+* **`BAND_NM = (240, 800)` nm 是默认周期带**，对应 515 nm LIPSS 族（`0.5λ–1.5λ`）。现在可按运行覆盖（`band_nm` / `--band-nm LO HI`），650 nm 织构与 HSFL 不必再改源码。自带的合成图（条纹周期 176.8 nm，低于默认带）在默认带下会被报成 `Λ ≈ 530 nm`——提醒使用前先设好周期带。
 * **模式与阈值是标定出来的启发式。** `SINGLE_AC_SPLIT = 0.60`、两套 QC 预设与六项批次判据都在 515 nm 系列上调过；其他织构（柱阵列、不同放大倍数）可能需要覆盖 `qc`/`criteria`。
 * **判定窗是物理尺寸（默认 2 µm），但高通是 20 px**，因此被去掉的照明尺度随放大倍数变化（3k 下 0.625 µm，12k 下 156 nm）。
 * **面积分数是栅格类别图的像素占比**；分块重叠时每个像素取最差类别。默认不重叠步长下等于涂色面积，但分块重叠时计数型 `tile_frac_ordered` 会与面积型 `ordered_frac` 不同。
@@ -346,7 +389,7 @@ R     = |Σ w_j e^{i·2θ_j}| / Σ w_j
 
 * 内建批次 QC：六项判据 + 每项限值与 PASS/FAIL（`sem_texture_checks.json`、markdown）、重复视野的 ICC(1,1)、逐视野类别图与供人工复核的标注副本（`annotate_folder`）。
 * 标注 PNG 是给审稿人的目标产物：缺陷区域按 severity 着色但仍能看清 SEM 结构，图内统计框记录 `Λ`、`C` 与面积分数。
-* 验证历史（模块 docstring）：6 个 515 nm 样片上剖面自相关周期为 375–395 nm，与 AFM 384.6 nm、v5 环形分析 378–396 nm 吻合——这是该方法取代 FFT 最大值 DLOA 流程的原因。
+* 验证历史（**2026-11-11 订正**）：6 个 515 nm LIPSS 视野的平均剖面自相关周期为 **362.9 ± 3.3 nm**（CV 0.9 %），两次独立运行一致（本次与 `output/sem_texture_20261103`，该组均为 362.95 nm）；同批图的五种独立取法给出 365–374 nm。旧版"375–395 nm，与 AFM 384.6 nm 吻合"的说法**复现不出来**，已删除：SEM 值比 AFM ZSR 中位低 5.6 %，与文献跨技术差异（5.1 %，Götte 等 2025）同量级，且无法用像素标定解释（已三重核验；要与 AFM 对齐需 33.11 nm/px）。规则度元组的合成验证（光栅/噪声/相位跳变）见 `tests/test_semtexture_regularity.py`。
 * 本文档复现（commit `0e0508e`，Python 3.11、NumPy 2.4/SciPy 1.17）：对单图目录 `data/examples/sem_test` 运行 `run()`，生成 `sem_texture_metrics.csv`、`tiles.csv`、`consistency.csv`、`checks.json` 与 markdown 报告；视野周期为 `530.4 nm`（剖面）对 `673.4 nm`（FFT），`θ = 45.0°`，`C = 0.980`，有序/无序/空白 = 0/100/0 %，64 px（2 µm）分块共 64 个，verdict 为 `FAIL`（单视野 → CV/θ-SD 不可计算；合成 176.8 nm 织构的频带失配如上所述）。该示例同时展示了输出契约与频带局限。
 
 ### 参考文献
@@ -358,4 +401,11 @@ R     = |Σ w_j e^{i·2θ_j}| / Σ w_j
 * Bonse J, Höhm S, Kirner SV, Rosenfeld A, Krüger J. Laser-induced periodic surface structures — a scientific evergreen. *IEEE J Sel Top Quantum Electron.* 2017;23(3):9000615.（LIPSS 周期与 λ 的关系及预期形貌）
 * Goldstein JI, Newbury DE, Michael JR, Ritchie NWM, Scott JHJ, Joy DC. *Scanning Electron Microscopy and X-ray Microanalysis.* 4th ed. Springer; 2018.（SEM 放大倍数/比例尺标定，以及用于 `pixel_nm` 的 JSM sidecar 元数据）
 * Russ JC, Neal FB. *The Image Processing Handbook.* 7th ed. CRC Press; 2016.（纹理/结构张量与谱分析背景）
-* ISO 25178-2:2012. *Geometrical product specifications (GPS) — Surface texture: Areal — Part 2: Terms, definitions and surface texture parameters.* ISO, Geneva.（面积纹理术语背景；有序/空白面积分数是项目自定义指标，不是 ISO 参数）
+* ISO 25178-2:2021. *Geometrical product specifications (GPS) — Surface texture: Areal — Part 2: Terms, definitions and surface texture parameters.* ISO, Geneva. 2 版（取代已撤销的 25178-2:2012；`Sal` 自相关长度、`Str` 纹理长宽比、`Std` 纹理方向分别对应本文的分块周期离散度、相干度与取向；`Sdr` 覆盖柱/熔渣带来的面积放大。有序/空白面积分数仍是项目自定义指标，不是 ISO 参数。）
+* Rahner E, Thiele T, Voss H, Müller FA, Bonse J, Gräf S. Objective, high-throughput regularity quantification of laser-induced periodic surface structures (LIPSS). *Appl Surf Sci.* 2026;726:165919. doi:10.1016/j.apsusc.2026.165919.（规则度元组 R_Λ,2D / R_Λ / Gini / DLOA / 相位；AISI 316L；记录了窗长与 DC 伪影导致的 "peak switching"，正是本模块要避开的）
+* Lechthaler M, Pauly C, Mücklich F. Objective homogeneity quantification of a periodic surface using the Gini coefficient. *Sci Rep.* 2020;10:14516. doi:10.1038/s41598-020-70758-9.（`gini_period` 的出处）
+* Sládek J, et al. Highly regular LIPSS on thin molybdenum films: optimization and generic criteria. *Materials.* 2023;16:2883. doi:10.3390/ma16072883.（已发表的验收带：DLOA < 10° 视为 highly regular）
+* Richter AM, Buchberger G, Stifter D, et al. Spatial period of laser-induced surface nanoripples on PET determines *Escherichia coli* repellence. *Nanomaterials.* 2021;11:3000. doi:10.3390/nano11113000.（可辩护的 FFT 流程：去均值、Hann 窗、取 ±k 一级峰、Lorentzian 拟合、Λ = 2/Δk 并做误差传播）
+* Götte A, Sallese M, Ränke F, Voisiat B, Lasagni AF, Soldera M. Scatterometry-based monitoring of laser-induced periodic surface structures on stainless steel. *Sensors.* 2025;25:5031. doi:10.3390/s25165031.（跨技术周期误差 5.1 %，正是上文 SEM–AFM 偏差的量级；并明确 LIPSS 量化尚无标准方法）
+* ISO 5725-1:2023 / ISO 5725-2:2025. *Accuracy (trueness and precision) of measurement methods and results.* ISO, Geneva.（重复性 s_r / 再现性 s_R——把"CV ≤ 3 %"从拍脑袋阈值变成可推导限值的依据）
+* Koo TK, Li MY. A guideline of selecting and reporting intraclass correlation coefficients for reliability research. *J Chiropr Med.* 2016;15(2):155–163. doi:10.1016/j.jcm.2016.02.012.（ICC 报告规范：报 95 % CI 下限；≥0.75 可用、≥0.90 好）

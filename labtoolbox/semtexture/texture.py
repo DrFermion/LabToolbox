@@ -24,11 +24,37 @@ Why autocorrelation and not the FFT maximum
 -------------------------------------------
 On 3 k images (31.25 nm/px) the ripple fundamental is ~12 px.  The 2-D FFT power in
 that band is dominated by the slow illumination envelope at 80-90 px, so "take the
-strongest peak" returns 450-500 nm instead of the true ~385 nm (this is the documented
-v4 defect of the old DLOA pipeline).  Averaging the intensity samples along the ripple
-tangent (which is phase-coherent) and autocorrelating the resulting 1-D profile
-isolates the fundamental: on the six 515 nm coupons it returns 375-395 nm, matching the
-AFM value 384.6 nm and the v5 ring analysis 378-396 nm.
+strongest peak" returns 450-500 nm instead of the ripple period (this is the documented
+v4 defect of the old DLOA pipeline; Rahner et al. 2026 describe the same peak-switching
+mechanism and why DC removal plus a Hann window are mandatory).  Averaging the intensity
+samples along the ripple tangent (which is phase-coherent) and autocorrelating the
+resulting 1-D profile
+isolates the fundamental: on the six 515 nm coupons it returns 362.9 +/- 3.3 nm.
+
+Measured, not assumed
+---------------------
+Five independent extraction methods re-run on the same six 515 nm LIPSS fields
+(2026-11-11, scripts/sem_integrity_crosscheck.py) give 363-374 nm; this module's
+profile autocorrelation gives 362.9 +/- 3.3 nm (CV 0.9 %).  The pixel size was verified
+three ways (scale bar in the image footer = 32 px/um, JSM sidecar SM_MICRON_BAR 32,
+this module's 31.25 nm/px default).  That is 5.6 % BELOW the AFM ZSR median (384.6 nm),
+i.e. the same order as the published technique-to-technique spread (5.1 %, Götte et al.
+2025), and it is NOT a calibration error: matching the AFM value would need
+33.11 nm/px (1 um = 30.2 px), which contradicts the instrument.  An earlier version of
+this docstring claimed "375-395 nm, matching the AFM 384.6 nm"; that range does not
+reproduce (repo run of 2026-11-03: 362.95 nm) and has been removed.  Cross-technique
+agreement must be established with a matched-area AFM + SEM comparison, not assumed.
+
+Regularity tuple
+----------------
+Besides the tile classification, every field reports a regularity tuple in the spirit
+of Rahner et al. 2026: ``R_lambda1d`` / ``R_lambda2d`` (1 - robust CV of the per-tile
+period from the profile autocorrelation / from the 2-D FFT peak), ``gini_period``
+(Gini coefficient of the tile periods, Lechthaler et al. 2020), ``dloa_deg``
+(orientation dispersion, a structure-tensor analogue of OrientationJ's DLOA) and
+``phase_rms_deg`` (residual phase scatter after removing a linear ramp).  The
+admissible period band is a parameter (``band_nm`` / CLI ``--band-nm``), so the same
+module also handles 650 nm (e.g. 380-1200 nm) and HSFL textures.
 
 Conventions
 -----------
@@ -245,6 +271,106 @@ def _period_from_profile(prof, px_nm, band_nm=BAND_NM):
                 n_periods=float(len(prof) / max(lam_ac / px_nm, 1.0)) if np.isfinite(lam_ac) else np.nan)
 
 
+def _gini(values):
+    """Gini coefficient of a non-negative sample (0 = all equal, ->1 = all in one bin)."""
+    x = np.sort(np.asarray([v for v in values if np.isfinite(v)], dtype=float))
+    if x.size < 2:
+        return np.nan
+    cum = np.cumsum(x)
+    if cum[-1] <= 0:
+        return np.nan
+    n = x.size
+    return float((n + 1.0 - 2.0 * np.sum(cum) / cum[-1]) / n)
+
+
+def _tile_fft_period(t, px_nm, band_nm):
+    """Period of the strongest 2-D spectral peak of one tile inside the band."""
+    n = t.shape[0]
+    a = (t - float(t.mean())) * np.outer(np.hanning(n), np.hanning(n))
+    P = np.abs(np.fft.fft2(a)) ** 2
+    ky = np.fft.fftfreq(n)[:, None]
+    kx = np.fft.fftfreq(n)[None, :]
+    k = np.hypot(ky, kx)
+    with np.errstate(divide="ignore"):
+        per = np.where(k > 0, px_nm / np.maximum(k, 1e-12), np.inf)
+    m = (per >= band_nm[0]) & (per <= band_nm[1])
+    if not m.any():
+        return np.nan
+    return float(per.ravel()[int(np.argmax(np.where(m, P, -np.inf)))])
+
+
+def _regularity(tile_blocks, tile_meta, px_nm, band_nm, field_period_nm, theta0,
+                ordered_frac=np.nan):
+    """Regularity tuple: dispersion of the fundamental, Gini, orientation and phase.
+
+    These are the quantities the LIPSS-regularity literature reports (Rahner et al.
+    2026; Lechthaler et al. 2020; Sládek et al. 2023), computed here from the same
+    tile map the classification uses:
+
+    * ``R_lambda1d`` = 1 - CV of the per-tile profile-autocorrelation periods;
+    * ``R_lambda2d`` = 1 - CV of the per-tile 2-D-FFT periods;
+    * ``gini_period`` = Gini coefficient of the per-tile periods;
+    * ``dloa_deg``    = circular SD of the per-tile gradient directions (a
+      structure-tensor analogue of OrientationJ's DLOA, not the same estimator);
+    * ``phase_rms_deg`` = circular RMS of the fundamental's phase after removing a
+      linear phase ramp along the gradient direction (grains/cuts show up here).
+
+    All are bounded to [0, 1] except ``dloa_deg``/``phase_rms_deg`` (degrees) and are
+    ``nan`` when there are too few finite tiles to say anything.
+    """
+    out = dict(R_lambda1d=np.nan, R_lambda2d=np.nan, gini_period=np.nan,
+               dloa_deg=np.nan, phase_rms_deg=np.nan, phase_coherence=np.nan,
+               n_tiles_regularity=0)
+
+    def _robust_cv(v):
+        v = np.asarray([x for x in v if np.isfinite(x)], dtype=float)
+        if v.size < 3:
+            return np.nan
+        mu = float(np.median(v))
+        if mu <= 0:
+            return np.nan
+        return float(1.4826 * np.median(np.abs(v - mu)) / mu)     # MAD-based CV
+
+    lam1 = [t["period_nm"] for t in tile_meta]
+    lam2 = [_tile_fft_period(b, px_nm, band_nm) for b in tile_blocks]
+    cv1, cv2 = _robust_cv(lam1), _robust_cv(lam2)
+    out["R_lambda1d"] = float(np.clip(1.0 - cv1, 0.0, 1.0)) if np.isfinite(cv1) else np.nan
+    out["R_lambda2d"] = float(np.clip(1.0 - cv2, 0.0, 1.0)) if np.isfinite(cv2) else np.nan
+    out["gini_period"] = _gini(lam1)
+    out["n_tiles_regularity"] = int(sum(1 for x in lam1 if np.isfinite(x)))
+
+    th = [t["theta_deg"] for t in tile_meta if np.isfinite(t["theta_deg"])]
+    if len(th) > 1:
+        out["dloa_deg"] = _circ_sd_deg(th)
+
+    # phase of the fundamental per tile (no per-tile rotation: the field direction is used,
+    # so the phases are comparable).  The expected ramp 2*pi*k0*s (s = position along the
+    # gradient) is removed analytically, then the circular scatter of the residual is
+    # reported -- no unwrapping needed, which would be meaningless over ~100 phase wraps.
+    if np.isfinite(field_period_nm) and field_period_nm > 0 and len(tile_meta) > 3:
+        k0 = px_nm / field_period_nm                      # cycles per pixel
+        ux, uy = np.cos(np.deg2rad(theta0)), np.sin(np.deg2rad(theta0))
+        resid = []
+        for blk, meta in zip(tile_blocks, tile_meta):
+            n = blk.shape[0]
+            yy, xx = np.mgrid[0:n, 0:n]
+            win = np.outer(np.hanning(n), np.hanning(n))
+            arg = -2j * np.pi * k0 * (ux * xx + uy * yy)
+            c = np.sum((blk - blk.mean()) * win * np.exp(arg))
+            if abs(c) < 1e-12:
+                continue
+            phase = float(np.angle(c))
+            s = float(ux * meta["x0"] + uy * meta["y0"])   # tile position along gradient
+            resid.append(phase - 2.0 * np.pi * k0 * s)
+        if len(resid) > 3:
+            z = np.exp(1j * np.asarray(resid))
+            R = abs(np.mean(z))
+            R = min(max(R, 1e-9), 1.0)
+            out["phase_rms_deg"] = float(np.rad2deg(np.sqrt(-2.0 * np.log(R))))
+            out["phase_coherence"] = float(R)
+    return out
+
+
 def _debris(img, px_nm, min_area_px=20, threshold_mad=8.0):
     """Bright-particle (debris) count per mm² and area fraction."""
     hp = img - grey_opening(img, size=(15, 15))
@@ -394,7 +520,7 @@ def _families(hp, theta0, px_nm, per0, c_img):
 # single-image analysis
 # --------------------------------------------------------------------------- #
 def analyse_image(path, pixel_nm=None, tile=None, step=None, qc=None,
-                  tile_um=DEFAULT_TILE_UM):
+                  tile_um=DEFAULT_TILE_UM, band_nm=None):
     """Full metric set for one micrograph.
 
     The classification window is given in **µm** (``tile_um``, default 2 µm = 64 px at 3 k,
@@ -402,7 +528,12 @@ def analyse_image(path, pixel_nm=None, tile=None, step=None, qc=None,
     same physical window is used at any magnification; ``tile`` overrides it in pixels.
     ``step`` defaults to the tile edge (non-overlapping), so the reported area fractions
     are exactly the painted area.
+
+    ``band_nm`` overrides the admissible ripple-period band (default ``BAND_NM`` =
+    240-800 nm, i.e. the 515 nm LIPSS family).  Pass e.g. ``(380, 1200)`` for 650 nm
+    textures or ``(80, 260)`` for HSFL instead of editing the module source.
     """
+    band = tuple(float(v) for v in band_nm) if band_nm else BAND_NM
     px = pixel_nm or _sidecar_pixel_nm(path) or DEFAULT_PIXEL_NM
     if tile is None:
         tile = int(round(tile_um * 1000.0 / px))
@@ -420,7 +551,7 @@ def analyse_image(path, pixel_nm=None, tile=None, step=None, qc=None,
     c_img = float(np.mean(coh))
 
     prof = _mean_profile(hp, theta0)
-    per = _period_from_profile(prof, px)
+    per = _period_from_profile(prof, px, band_nm=band)
 
     # second pass: match the structure-tensor window to the ripple wavelength, so that
     # the coherence means the same thing at 3 k and at 12 k (a fixed 6-px window sees
@@ -433,13 +564,15 @@ def analyse_image(path, pixel_nm=None, tile=None, step=None, qc=None,
         theta0 = _circ_mean_deg(theta, w)
         c_img = float(np.mean(coh))
         prof = _mean_profile(hp, theta0)
-        per = _period_from_profile(prof, px)
+        per = _period_from_profile(prof, px, band_nm=band)
     contrast = float(np.std(prof) / (np.mean(img) + 1e-9))
 
     res = {
         "file": os.path.basename(path),
         "coupon": _coupon_id(path),
         "pixel_nm": px,
+        "band_lo_nm": band[0],
+        "band_hi_nm": band[1],
         "period_nm": per["period_nm"],
         "period_fft_nm": per["period_fft_nm"],
         "period_agree_pct": (100.0 * abs(per["period_nm"] - per["period_fft_nm"])
@@ -461,6 +594,7 @@ def analyse_image(path, pixel_nm=None, tile=None, step=None, qc=None,
     h, wdt = img.shape
     img_med = float(np.median(img))
     rows = []
+    blocks_all = []
     for y0 in range(0, max(h - tile, 1) + 1, step):
         for x0 in range(0, max(wdt - tile, 1) + 1, step):
             t = hp[y0:y0 + tile, x0:x0 + tile]
@@ -471,13 +605,14 @@ def analyse_image(path, pixel_nm=None, tile=None, step=None, qc=None,
             th_t = _circ_mean_deg(tht, wt)
             c_t = float(np.mean(ct))
             pr = _mean_profile(t, th_t, margin=0.03)
-            pt = _period_from_profile(pr, px)
+            pt = _period_from_profile(pr, px, band_nm=band)
             m_int = float(np.mean(img[y0:y0 + tile, x0:x0 + tile]))
             rows.append(dict(y0=y0, x0=x0, coherence=c_t, theta_deg=th_t,
                              period_nm=pt["period_nm"], ac_strength=pt["ac_strength"],
                              contrast=float(np.std(pr) / (np.mean(np.abs(t)) + 1e-9)),
                              mean_int=m_int,
                              valid=int(m_int >= 0.45 * img_med)))
+            blocks_all.append(t)
     tiles = rows
     if tiles:
         valid = [t for t in tiles if t["valid"]]
@@ -546,6 +681,11 @@ def analyse_image(path, pixel_nm=None, tile=None, step=None, qc=None,
             t["severity"] = 0.0 if ordered else float(np.clip((r - 1.0) / 1.5, 0.0, 1.0))
 
         n = len(tiles)
+        # ---- regularity tuple (Rahner-style) on the valid tiles -----------
+        pairs = [(b, m) for b, m in zip(blocks_all, tiles) if m["valid"]]
+        reg = _regularity([b for b, _ in pairs], [m for _, m in pairs], px, band,
+                          per["period_nm"], theta0)
+        res.update(reg)
         # ---- area fractions on the rasterised map (overlapping tiles counted once) ----
         cmap_px = _rasterise_classes(tiles, (h, wdt), tile)
         in_field = cmap_px != -2
@@ -668,6 +808,16 @@ def _batch_stats(df, criteria):
             "bare_mean_pct": float(np.nanmean(bare)), "bare_max_pct": float(np.nanmax(bare)),
             "disordered_mean_pct": 100.0 * float(np.nanmean(sub["disordered_frac"])),
             "debris_median_per_mm2": float(np.nanmedian(sub["debris_per_mm2"])),
+            # regularity tuple group means (Rahner-style; reported, not yet gated)
+            "R_lambda1d_mean": float(np.nanmean(sub["R_lambda1d"])) if "R_lambda1d" in sub else np.nan,
+            "R_lambda2d_mean": float(np.nanmean(sub["R_lambda2d"])) if "R_lambda2d" in sub else np.nan,
+            "gini_period_mean": float(np.nanmean(sub["gini_period"])) if "gini_period" in sub else np.nan,
+            "dloa_deg_mean": float(np.nanmean(sub["dloa_deg"])) if "dloa_deg" in sub else np.nan,
+            "phase_coherence_mean": (float(np.nanmean(sub["phase_coherence"]))
+                                     if "phase_coherence" in sub else np.nan),
+            "dloa_check_vs_10deg": ("PASS" if np.isfinite(np.nanmean(sub["dloa_deg"]))
+                                    and np.nanmean(sub["dloa_deg"]) <= 10.0 else "FAIL")
+            if "dloa_deg" in sub else "n/a",
         })
     st = rows[0] if rows else {}
     checks = [
@@ -900,7 +1050,7 @@ def annotate_image(path, out_path, res=None, linewidth=1.2, label=True):
 
 def annotate_folder(folder, out_dir, pixel_nm=None, tile=None, step=None,
                     qc=None, suffix="_quality", verbose=True, tile_um=DEFAULT_TILE_UM,
-                    exclude=None, results=None):
+                    exclude=None, results=None, band_nm=None):
     """Annotated copies (poor areas marked) of every image under *folder*.
 
     Keeps the group sub-folder structure, writes ``<stem><suffix>.png`` and returns
@@ -913,7 +1063,7 @@ def annotate_folder(folder, out_dir, pixel_nm=None, tile=None, step=None,
             res = (results or {}).get(path)
             if res is None:
                 res = analyse_image(path, pixel_nm=pixel_nm, tile=tile, step=step, qc=qc,
-                                    tile_um=tile_um)
+                                    tile_um=tile_um, band_nm=band_nm)
         except Exception as exc:
             if verbose:
                 print(f"  !! {os.path.basename(path)}: {exc}")
@@ -941,7 +1091,7 @@ def annotate_folder(folder, out_dir, pixel_nm=None, tile=None, step=None,
 # --------------------------------------------------------------------------- #
 def run(folder, output_dir=None, pixel_nm=None, tile=None, step=None,
         qc=None, criteria=None, figures=True, verbose=True,
-        tile_um=DEFAULT_TILE_UM, exclude=None):
+        tile_um=DEFAULT_TILE_UM, exclude=None, band_nm=None):
     """Analyse every SEM image under *folder* and write the QC tables.
 
     Parameters
@@ -954,6 +1104,9 @@ def run(folder, output_dir=None, pixel_nm=None, tile=None, step=None,
         Defaults to ``output/sem_texture_<YYYYMMDD>``.
     pixel_nm : float, optional
         nm per pixel; otherwise a JSM ``*.txt`` sidecar is used, else 31.25 nm.
+    band_nm : (float, float), optional
+        Admissible ripple-period band in nm; defaults to ``BAND_NM`` (240-800 nm,
+        the 515 nm LIPSS family).  Use ``(380, 1200)`` for 650 nm textures.
     """
     import datetime
     folder = os.path.abspath(folder)
@@ -972,7 +1125,7 @@ def run(folder, output_dir=None, pixel_nm=None, tile=None, step=None,
     for grp, path in items:
         try:
             r = analyse_image(path, pixel_nm=pixel_nm, tile=tile, step=step, qc=qc,
-                              tile_um=tile_um)
+                              tile_um=tile_um, band_nm=band_nm)
         except Exception as exc:                      # keep going, report at the end
             if verbose:
                 print(f"  !! {os.path.basename(path)}: {exc}")
@@ -1065,7 +1218,23 @@ def run(folder, output_dir=None, pixel_nm=None, tile=None, step=None,
         md.append("| " + " | ".join(
             f"{r[c]:.3g}" if isinstance(r[c], (float, np.floating)) else str(r[c]) for c in cols) + " |")
     md.append("")
-    md.append(f"ICC(1,1) of the period: " + ", ".join(
+    md.append("## Regularity tuple (Rahner-style)")
+    md.append("")
+    md.append("| group | R_Λ,1d | R_Λ,2d | Gini(Λ) | DLOA-style θ dispersion (°) | phase coherence | DLOA < 10° |")
+    md.append("|---|---|---|---|---|---|---|")
+    for s in stats:
+        def _f(v, nd=3):
+            return "–" if not np.isfinite(v) else f"{v:.{nd}f}"
+        md.append(f"| {s['group']} | {_f(s.get('R_lambda1d_mean'))} | {_f(s.get('R_lambda2d_mean'))} | "
+                  f"{_f(s.get('gini_period_mean'))} | {_f(s.get('dloa_deg_mean'), 2)} | "
+                  f"{_f(s.get('phase_coherence_mean'))} | {s.get('dloa_check_vs_10deg', 'n/a')} |")
+    md.append("")
+    md.append("_R = 1 − robust CV of the per-tile periods (1 = identical everywhere); "
+              "Gini 0 = uniform; DLOA-style θ dispersion is a structure-tensor analogue of "
+              "OrientationJ's DLOA (published acceptance: < 10°, Sládek 2023); phase coherence is "
+              "near zero on real LSFL and should be read relatively._")
+    md.append("")
+    md.append("ICC(1,1) of the period: " + ", ".join(
         f"{g}: {'n/a (single field per coupon)' if not np.isfinite(v) else f'{v:.3f}'}" for g, v in icc.items()))
     rp = os.path.join(out, "report_sem_texture.md")
     with open(rp, "w", encoding="utf-8") as fh:
