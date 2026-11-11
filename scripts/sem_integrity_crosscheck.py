@@ -366,23 +366,74 @@ def m7_tile_prominence(img, theta0, tile_px=64, prom_min=2.0):
 
 
 # ----------------------------------------------------------------------------- main
-def main():
+def _parse_args(argv=None):
+    import argparse
+    ap = argparse.ArgumentParser(
+        description="Cross-method check of SEM texture period / regularity metrics")
+    ap.add_argument("--folder", default=SEM_DIR, help="SEM image root (sub-folders = groups)")
+    ap.add_argument("--outdir", default=OUTDIR, help="output directory")
+    ap.add_argument("--name", default="", help="optional label used in the report title")
+    ap.add_argument("--band-nm", type=float, nargs=2, default=None, metavar=("LO", "HI"),
+                    help="admissible ripple-period band (default 240 800)")
+    ap.add_argument("--pixel-nm", type=float, default=None,
+                    help="override the pixel size (default: sidecar, else 31.25)")
+    ap.add_argument("--ref-nm", type=float, default=None,
+                    help="optional external reference period (e.g. an AFM value) for the delta columns")
+    ap.add_argument("--max-per-dir", type=int, default=0,
+                    help="analyse at most N fields per folder (0 = all); keeps big trees tractable")
+    ap.add_argument("--exclude", nargs="*", default=None, help="path substrings to skip")
+    ap.add_argument("--skip-mag", action="store_true",
+                    help="skip the 3k-vs-12k magnification cross-check (only meaningful for the 515-8 series)")
+    return ap.parse_args(argv)
+
+
+def main(argv=None):
+    global SEM_DIR, OUTDIR, BAND_NM, PX_NM, AFM_REF_NM
+    args = _parse_args(argv)
+    SEM_DIR = args.folder
+    OUTDIR = args.outdir
+    if args.band_nm:
+        BAND_NM = (float(args.band_nm[0]), float(args.band_nm[1]))
+    if args.pixel_nm:
+        PX_NM = float(args.pixel_nm)
+    AFM_REF_NM = args.ref_nm if args.ref_nm else None
     os.makedirs(OUTDIR, exist_ok=True)
-    files = sorted(f for f in os.listdir(SEM_DIR)
-                   if f.lower().endswith((".bmp", ".tif", ".tiff", ".png", ".jpg"))
-                   and not f.lower().endswith(("_quality.png", "_pair.png", "_marked.png")))
+
+    from labtoolbox.semtexture import _discover
+    items = _discover(SEM_DIR, exclude=args.exclude)
+    if not items:
+        raise SystemExit(f"no SEM images under {SEM_DIR}")
+    if args.max_per_dir:
+        per_dir, kept = {}, []
+        for grp, path in items:
+            d = os.path.dirname(path)
+            if per_dir.get(d, 0) >= args.max_per_dir:
+                continue
+            per_dir[d] = per_dir.get(d, 0) + 1
+            kept.append((grp, path))
+        items = kept
+    files = items
+    print(f"{len(files)} fields, band {BAND_NM[0]:g}-{BAND_NM[1]:g} nm, "
+          f"ref {AFM_REF_NM if AFM_REF_NM else 'none'}", flush=True)
     rows = []
     scalebar = {}
-    for f in files:
-        path = os.path.join(SEM_DIR, f)
+    for f, path in files:
+        f = os.path.basename(path)
+        group = os.path.basename(os.path.dirname(path))
         bar_px, _, _ = measure_scalebar_px(path)
+        _w = Image.open(path).size[0]
+        if bar_px is None or bar_px > 0.4 * _w or not (2 <= bar_px <= 1000):
+            # not a micrograph (report figures have no instrument footer, and their longest
+            # bright run spans a large fraction of the image)
+            print(f"[skip] {os.path.relpath(path, SEM_DIR)} : implausible scale bar ({bar_px} px)", flush=True)
+            continue
         scalebar[f] = bar_px
         img = load_gray(path)
         print(f"[{f}] shape={img.shape} scalebar={bar_px} px -> "
               f"{1000.0 / bar_px:.2f} nm/px" if bar_px else f"[{f}] shape={img.shape} scalebar=?", flush=True)
         m0 = m0_module(path)
         theta0 = float(m0["theta_deg"]) if np.isfinite(m0.get("theta_deg") or np.nan) else 0.0
-        rec = dict(file=f, coupon=f.split("-")[0], scalebar_px=bar_px,
+        rec = dict(file=f, coupon=f.split("-")[0], group=group, scalebar_px=bar_px,
                    px_nm_measured=(1000.0 / bar_px) if bar_px else np.nan)
         rec.update({f"M0_{k}": v for k, v in m0.items()})
         rec.update({f"M1_{k}": v for k, v in m1_naive_fft(img).items()})
@@ -419,9 +470,11 @@ def main():
                          sd_nm=float(v.std(ddof=1)) if v.size > 1 else 0.0,
                          cv_pct=float(100 * v.std(ddof=1) / v.mean()) if v.size > 1 else 0.0,
                          min_nm=float(v.min()), max_nm=float(v.max()),
-                         delta_vs_afm_nm=float(v.mean() - AFM_REF_NM),
-                         delta_vs_afm_pct=float(100 * (v.mean() - AFM_REF_NM) / AFM_REF_NM),
-                         inside_v5_ring=bool(V5_RING_NM[0] <= v.mean() <= V5_RING_NM[1])))
+                         delta_vs_afm_nm=(float(v.mean() - AFM_REF_NM) if AFM_REF_NM else np.nan),
+                         delta_vs_afm_pct=(float(100 * (v.mean() - AFM_REF_NM) / AFM_REF_NM)
+                                           if AFM_REF_NM else np.nan),
+                         inside_v5_ring=(bool(V5_RING_NM[0] <= v.mean() <= V5_RING_NM[1])
+                                         if AFM_REF_NM else None)))
 
     # ordering metrics
     order = []
@@ -451,7 +504,8 @@ def main():
 
     # ---- calibration & magnification cross-check (coupon 8: 3 k vs 12 k, sidecar pixel size)
     mag_rows = []
-    for name, px in (("LIPSS-515-8-3k_e.tif", 31.25), ("LIPSS-515-8-12k_e.tif", 7.8125)):
+    for name, px in ((("LIPSS-515-8-3k_e.tif", 31.25), ("LIPSS-515-8-12k_e.tif", 7.8125))
+                     if not args.skip_mag else ()):
         p = os.path.join(MAG_DIR, name)
         if not os.path.exists(p):
             continue
@@ -470,8 +524,11 @@ def main():
 
     # what pixel size WOULD be needed to reconcile SEM with the AFM value
     m0_mean = float(np.nanmean([r.get("M0_period_nm", np.nan) for r in rows]))
-    px_needed = PX_NM * AFM_REF_NM / m0_mean
-    bar_needed = 1000.0 / px_needed
+    if AFM_REF_NM:
+        px_needed = PX_NM * AFM_REF_NM / m0_mean
+        bar_needed = 1000.0 / px_needed
+    else:
+        px_needed = bar_needed = float("nan")
 
     # ---- figures
     import matplotlib
@@ -484,20 +541,24 @@ def main():
     sds = [s["sd_nm"] for s in summ]
     ax = axes[0]
     ax.bar(range(len(summ)), means, yerr=sds, capsize=4, color="#4C78A8", alpha=0.85)
-    ax.axhline(AFM_REF_NM, color="#D62728", ls="--", lw=1.5, label=f"AFM ZSR median {AFM_REF_NM:.1f} nm")
-    ax.axhspan(*V5_RING_NM, color="#D62728", alpha=0.10, label="v5 ring analysis 378–396 nm")
+    if AFM_REF_NM:
+        ax.axhline(AFM_REF_NM, color="#D62728", ls="--", lw=1.5,
+                   label=f"reference {AFM_REF_NM:.1f} nm")
+        ax.axhspan(*V5_RING_NM, color="#D62728", alpha=0.10, label="v5 ring analysis 378–396 nm")
     ax.set_xticks(range(len(summ)))
     ax.set_xticklabels(labels)
     ax.set_ylabel("ripple period Λ (nm)")
-    ax.set_title(f"Same 6 fields, six extraction methods (n={summ[0]['n']})")
-    ax.legend(fontsize=8)
+    ax.set_title(f"Same {summ[0]['n']} fields, six extraction methods")
+    if any(ax.get_legend_handles_labels()[0]):
+        ax.legend(fontsize=8)
     ax.grid(axis="y", alpha=0.3)
 
     ax = axes[1]
     for i, r in enumerate(rows):
         vals = [r.get(col, np.nan) for _, (_, col) in methods.items()]
         ax.plot(range(len(vals)), vals, "o-", lw=0.8, alpha=0.75, ms=4, label=r["file"])
-    ax.axhline(AFM_REF_NM, color="#D62728", ls="--", lw=1.2)
+    if AFM_REF_NM:
+        ax.axhline(AFM_REF_NM, color="#D62728", ls="--", lw=1.2)
     ax.set_xticks(range(len(methods)))
     ax.set_xticklabels(list(methods.keys()))
     ax.set_ylabel("Λ (nm)")
@@ -509,14 +570,21 @@ def main():
     fig.savefig(fig_png, dpi=200)
 
     # ---- report
-    lines = [f"# SEM 织构「完整性」指标跨方法比对 — {date.today().isoformat()}", "",
-             f"输入：`{SEM_DIR}`（515 nm LIPSS，6 个 coupon 视野，{PX_NM} nm/px）", "",
-             "## 1. 周期 Λ 的六种取法（同一批图）", "",
-             "| 方法 | 说明 | n | 均值 (nm) | SD | CV | vs AFM 384.6 nm |",
-             "|---|---|---|---|---|---|---|"]
+    lines = [f"# SEM 织构「完整性」指标跨方法比对 — {date.today().isoformat()}", ""]
+    if args.name:
+        lines.insert(1, f"**数据集**：{args.name}")
+    lines += [f"输入：`{SEM_DIR}`（{len(rows)} 个视野，band {BAND_NM[0]:g}–{BAND_NM[1]:g} nm，"
+              f"{PX_NM:g} nm/px）", "",
+              "## 1. 周期 Λ 的六种取法（同一批图）", "",
+              "| 方法 | 说明 | n | 均值 (nm) | SD | CV |"
+              + (f" vs 参考 {AFM_REF_NM:.1f} nm |" if AFM_REF_NM else ""),
+              "|---|---|---|---|---|---|" + ("---|" if AFM_REF_NM else "")]
     for s in summ:
-        lines.append(f"| {s['method']} | {s['name']} | {s['n']} | {s['mean_nm']:.1f} | "
-                     f"{s['sd_nm']:.1f} | {s['cv_pct']:.2f} % | {s['delta_vs_afm_pct']:+.1f} % |")
+        row = (f"| {s['method']} | {s['name']} | {s['n']} | {s['mean_nm']:.1f} | "
+               f"{s['sd_nm']:.1f} | {s['cv_pct']:.2f} % |")
+        if AFM_REF_NM:
+            row += f" {s['delta_vs_afm_pct']:+.1f} % |"
+        lines.append(row)
     lines += ["", "## 2. 有序性/完整性指标（同类比较）", "",
               "| 指标 | 说明 | n | 均值 | SD | 范围 |", "|---|---|---|---|---|---|"]
     for o in order:
@@ -525,20 +593,19 @@ def main():
 
     # calibration section
     bars = [r["scalebar_px"] for r in rows if r.get("scalebar_px")]
-    lines += ["", "## 3. 像素标定核对（决定性证据）", "",
+    bar_uniq = sorted(set(bars))
+    lines += ["", "## 3. 像素标定核对", "",
               "| 检查 | 结果 |", "|---|---|",
-              f"| 图内比例尺实测（脚注白条，逐图测量） | {', '.join(str(b) for b in bars)} px = 1 µm |",
-              f"| 换算像素尺寸 | {1000.0 / np.median(bars):.2f} nm/px |",
-              f"| 仪器 sidecar 自述（`SM_MICRON_BAR` / `SM_MICRON_MARKER`） | 515-8 series 3k = 32 px/1 µm，12k = 128 px/1 µm（JSM 7400F） |",
-              f"| 模块假定 `DEFAULT_PIXEL_NM` | 31.25 nm/px ✓ 与以上一致 |",
-              f"| 若要 SEM 周期等于 AFM {AFM_REF_NM} nm，像素需为 | **{px_needed:.2f} nm/px**（即 1 µm = {bar_needed:.1f} px，与实测 32 px 不符） |",
-              "",
-              f"→ 标定本身无误；**SEM 与 AFM 的 {100 * (m0_mean - AFM_REF_NM) / AFM_REF_NM:+.1f}% 偏差不能归因于像素标定**。",
-              "",
-              f"另外：模块 docstring/文档声称「六个 515 nm 样片给出 375–395 nm，与 AFM 384.6 nm 吻合」——"
-              f"本脚本与仓库内既有的 `output/sem_texture_20261103` 运行**都复现不出这个区间**（实际 {m0_mean:.1f} ± "
-              f"{np.nanstd([r.get('M0_period_nm', np.nan) for r in rows], ddof=1):.1f} nm / 362.9 nm），"
-              "该验证声明目前**无数据支持**，需要改写或重新标定后再引用。"]
+              f"| 图内比例尺实测（脚注白条，逐图测量，n={len(bars)}） | "
+              + ", ".join(str(b) for b in bar_uniq) + " px = 1 µm |",
+              f"| 换算像素尺寸 | {1000.0 / np.median(bars):.2f} nm/px |" if bars else "| 比例尺未测到 | – |"]
+    if AFM_REF_NM:
+        lines += [f"| 若要 SEM 周期等于参考 {AFM_REF_NM} nm，像素需为 | **{px_needed:.2f} nm/px**"
+                  f"（即 1 µm = {bar_needed:.1f} px）|",
+                  "",
+                  f"→ 标定本身无误；**SEM 与参考值的 {100 * (m0_mean - AFM_REF_NM) / AFM_REF_NM:+.1f} % 偏差"
+                  "不能归因于像素标定**。"]
+    lines += [""]
 
     # magnification section
     if mag_rows:
@@ -552,14 +619,14 @@ def main():
             d0 = 100 * (b["M0_period_nm"] - a["M0_period_nm"]) / a["M0_period_nm"]
             lines += ["", f"→ 12k 相对 3k：**{d0:+.1f}%**（同一 coupon，两套像素尺寸都由 sidecar 给出）。"]
 
-    lines += ["", "## 5. 逐视野数据", "", "| file | " + " | ".join(methods) + " |",
-              "|---|" + "---|" * len(methods)]
+    lines += ["", "## 5. 逐视野数据", "", "| group | file | " + " | ".join(methods) + " |",
+              "|---|---|" + "---|" * len(methods)]
     for r in rows:
         vals = []
         for _, (_, col) in methods.items():
             v = r.get(col, np.nan)
             vals.append(f"{v:.0f}" if np.isfinite(v) else "–")
-        lines.append(f"| {r['file']} | " + " | ".join(vals) + " |")
+        lines.append(f"| {r.get('group', '')} | {r['file']} | " + " | ".join(vals) + " |")
     rep_md = os.path.join(OUTDIR, "crosscheck_report.md")
     with open(rep_md, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
