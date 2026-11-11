@@ -289,12 +289,16 @@ jobs:
             echo "::error::release notes name '$installer' but tag '$GITHUB_REF_NAME' requires '$expected'"
             exit 1
           fi
-          if [ ! -f "artifacts/$installer" ]; then
+          # The artifacts keep the paths upload-artifact recorded, so the Windows
+          # installer lands in a subdirectory (artifacts/installer/...), never at
+          # the artifacts root: find it recursively instead of assuming a layout.
+          installer_path="$(find artifacts -type f -name "$installer" -print -quit)"
+          if [ -z "$installer_path" ]; then
             echo "::error::'$installer' is named in the release notes but is missing from the release artifacts:"
             find artifacts -type f 2>/dev/null | sort || true
             exit 1
           fi
-          echo "Release notes verified: '$installer' is present in artifacts"
+          echo "Release notes verified: '$installer_path' matches the tag and exists"
 
       - name: Create release (unsigned builds)
         uses: softprops/action-gh-release@v2
