@@ -7,6 +7,7 @@ Enough for the project reports; not a general Markdown implementation.
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 
@@ -14,7 +15,7 @@ from docx import Document
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
-from docx.shared import Pt, RGBColor
+from docx.shared import Pt, RGBColor, Inches
 
 CJK_FONT = "Microsoft YaHei"
 LATIN_FONT = "Calibri"
@@ -37,7 +38,7 @@ def _set_font(run, size=None, bold=None, mono=False):
         run.font.bold = bold
 
 
-INLINE = re.compile(r"(\*\*.+?\*\*|`.+?`)")
+INLINE = re.compile(r"(\*\*.+?\*\*|\*[^*\n]+?\*|`.+?`)")
 
 
 def _add_inline(par, text, size=None, base_bold=False):
@@ -47,6 +48,10 @@ def _add_inline(par, text, size=None, base_bold=False):
         if chunk.startswith("**") and chunk.endswith("**") and len(chunk) > 4:
             r = par.add_run(chunk[2:-2])
             _set_font(r, size, True)
+        elif chunk.startswith("*") and chunk.endswith("*") and len(chunk) > 2:
+            r = par.add_run(chunk[1:-1])
+            _set_font(r, size, base_bold)
+            r.font.italic = True
         elif chunk.startswith("`") and chunk.endswith("`") and len(chunk) > 2:
             r = par.add_run(chunk[1:-1])
             _set_font(r, (size or 10.5) - 0.5, base_bold, mono=True)
@@ -111,6 +116,27 @@ def md_to_docx(md_path, docx_path, title=None):
             doc.add_paragraph()
             i += 1
             continue
+        # image: ![alt](path)
+        m = re.match(r"^!\[(.*?)\]\((.+?)\)\s*$", ln.strip())
+        if m:
+            alt, src = m.group(1), m.group(2)
+            cand = src if os.path.isabs(src) else os.path.join(os.path.dirname(md_path), src)
+            if os.path.exists(cand):
+                try:
+                    doc.add_picture(cand, width=Inches(6.6))
+                    if alt:
+                        cap = doc.add_paragraph()
+                        cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        r = cap.add_run(alt)
+                        _set_font(r, 9)
+                except Exception:
+                    p = doc.add_paragraph()
+                    _add_inline(p, f"[image: {src}]", size=10)
+            else:
+                p = doc.add_paragraph()
+                _add_inline(p, f"[missing image: {src}]", size=10)
+            i += 1
+            continue
         # table
         if ln.lstrip().startswith("|") and i + 1 < n and re.match(r"^\s*\|[\s:|-]+\|\s*$", lines[i + 1]):
             header = [c.strip() for c in ln.strip().strip("|").split("|")]
@@ -137,14 +163,22 @@ def md_to_docx(md_path, docx_path, title=None):
         m = re.match(r"^(\s*)([-*+]|\d+\.)\s+(.*)$", ln)
         if m:
             text = m.group(3)
-            style = "List Number" if re.match(r"\d+\.", m.group(2)) else "List Bullet"
-            try:
-                p = doc.add_paragraph(style=style)
-            except KeyError:
-                p = doc.add_paragraph(style="List Bullet")
+            marker = m.group(2)
             indent = len(m.group(1)) // 2
-            p.paragraph_format.left_indent = Pt(18 + 18 * indent)
-            _add_inline(p, text, size=10.5)
+            if re.match(r"\d+\.", marker):
+                # keep the document's own numbering: Word's "List Number" shares one
+                # counter across the whole file, which renumbers references and controls
+                p = doc.add_paragraph()
+                p.paragraph_format.left_indent = Pt(30 + 18 * indent)
+                p.paragraph_format.first_line_indent = Pt(-14)
+                _add_inline(p, f"{marker} {text}", size=10.5)
+            else:
+                try:
+                    p = doc.add_paragraph(style="List Bullet")
+                except KeyError:
+                    p = doc.add_paragraph(style="List Bullet")
+                p.paragraph_format.left_indent = Pt(18 + 18 * indent)
+                _add_inline(p, text, size=10.5)
             i += 1
             continue
         # paragraph
