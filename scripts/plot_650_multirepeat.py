@@ -824,7 +824,14 @@ def main():
             # keep the excluded incubation points on the axis so they can be shown as excluded
             times = [t for t in TIMES if t in set(st.time) or t in ex_times]
             ex_slots = set()
-            if not is_comb:
+            if is_comb:
+                # a slot with no retained data at all (excluded in every repeat) is drawn
+                # as excluded; slots that still have data are never hatched
+                for t_ in times:
+                    for ar_ in AREAS:
+                        if not len(st[(st.time == t_) & (st.area == ar_)]):
+                            ex_slots.add((t_, ar_))
+            else:
                 for e in EXCL:
                     if e['repeat'] != lb or norm(e['species']) != norm(sp_label):
                         continue

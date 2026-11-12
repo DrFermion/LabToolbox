@@ -124,8 +124,11 @@ def md_to_docx(md_path, docx_path, title=None):
             if os.path.exists(cand):
                 try:
                     doc.add_picture(cand, width=Inches(6.6))
+                    pic_par = doc.paragraphs[-1]
+                    pic_par.paragraph_format.keep_with_next = True
                     if alt:
                         cap = doc.add_paragraph()
+                        cap.paragraph_format.keep_together = True
                         cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
                         r = cap.add_run(alt)
                         _set_font(r, 9)
@@ -193,6 +196,36 @@ def md_to_docx(md_path, docx_path, title=None):
         _add_inline(p, " ".join(buf), size=10.5)
 
     doc.save(docx_path)
+
+    # --- layout fixes that only show up in the rendered PDF
+    # 1) headings stay with the block that follows them
+    for par in doc.paragraphs:
+        try:
+            if par.style is not None and par.style.name.lower().startswith('heading'):
+                par.paragraph_format.keep_with_next = True
+                par.paragraph_format.keep_together = True
+        except Exception:
+            continue
+    # 2) tables: no row splits; a short table stays on one page (paragraph-level
+    #    keepNext in every cell except the last row); a long table repeats its header
+    for tbl in doc.tables:
+        try:
+            n_rows = len(tbl.rows)
+            short = n_rows <= 18
+            for k, row in enumerate(tbl.rows):
+                trPr = row._tr.get_or_add_trPr()
+                if trPr.find(qn('w:cantSplit')) is None:
+                    trPr.append(trPr.makeelement(qn('w:cantSplit'), {}))
+                if n_rows > 18 and k == 0 and trPr.find(qn('w:tblHeader')) is None:
+                    trPr.append(trPr.makeelement(qn('w:tblHeader'), {}))
+                if short:
+                    for cell in row.cells:
+                        for par in cell.paragraphs:
+                            par.paragraph_format.keep_with_next = (k < n_rows - 1)
+                            par.paragraph_format.keep_together = True
+        except Exception:
+            continue
+    doc.save(docx_path)          # the layout pass runs after the first save; persist it
     return docx_path
 
 
