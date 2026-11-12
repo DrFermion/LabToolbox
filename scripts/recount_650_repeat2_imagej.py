@@ -112,13 +112,20 @@ def main():
     ap.add_argument('--only', default='', help='e.g. S.aureus/5h to debug a single folder')
     ap.add_argument('--minpx', type=int, default=3, help='min particle size in px (default 3)')
     ap.add_argument('--repeats', default='repeat 2', help='comma separated, e.g. "repeat 1,repeat 2"')
+    ap.add_argument('--dataset', default='', help='dataset root (default: the 650nm-20261014 folder)')
     ap.add_argument('--outdir', default='', help='count table output dir (default imagej_counts_repeat2)')
     ap.add_argument('--mirror', default='', help='working mirror dir (default output/650_repeat2_20261022)')
     a = ap.parse_args()
+    global DS
+    if a.dataset:
+        DS = a.dataset.replace(chr(92), '/')
     ARGS = {'minpx': a.minpx,
             'repeats': [s.strip() for s in a.repeats.split(',') if s.strip()]}
     out_dir = a.outdir or OUT
     mirror = a.mirror or MIRROR
+    if a.dataset and not a.outdir:
+        out_dir = os.path.join(DS, 'imagej_counts_min%d' % a.minpx)
+
     for d in (out_dir, mirror):
         os.makedirs(d, exist_ok=True)
     print('counting: minpx=%d  repeats=%s  -> %s' % (a.minpx, ARGS['repeats'], out_dir), flush=True)
