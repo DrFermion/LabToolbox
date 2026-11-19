@@ -111,9 +111,12 @@ def read_sidecar_bar(path):
     bar = marker = mag = None
     for tok in txt.replace("\r", " ").replace("\n", " ").split("$"):
         t = tok.strip()
-        if t.startswith("$SM_MICRON_BAR"):
+        # NB: the leading "$" is consumed by split("$") above, so the token
+        # starts with "SM_MICRON_BAR" (the old "$SM_..." test never matched and
+        # the sidecar fallback silently returned None).
+        if t.startswith("SM_MICRON_BAR"):
             bar = t.split()[-1]
-        elif t.startswith("$SM_MICRON_MARKER"):
+        elif t.startswith("SM_MICRON_MARKER"):
             marker = t.split()[-1]
         elif t.startswith("CM_MAG"):
             mag = t.split()[-1]
@@ -422,6 +425,18 @@ def main(argv=None):
         group = os.path.basename(os.path.dirname(path))
         bar_px, _, _ = measure_scalebar_px(path)
         _w = Image.open(path).size[0]
+        if bar_px is None:
+            # fallback: JEOL sidecar carries the instrument's own bar length
+            # (SM_MICRON_BAR).  Some greyscale BMP/PNG exports fail the purely
+            # visual bar detector, which used to skip the whole batch.
+            sc = read_sidecar_bar(path)
+            if sc and sc.get("bar_px"):
+                try:
+                    bar_px = int(float(sc["bar_px"]))
+                    print(f"[sidecar] {f}: bar {bar_px} px (visual detector failed)",
+                          flush=True)
+                except (TypeError, ValueError):
+                    bar_px = None
         if bar_px is None or bar_px > 0.4 * _w or not (2 <= bar_px <= 1000):
             # not a micrograph (report figures have no instrument footer, and their longest
             # bright run spans a large fraction of the image)
