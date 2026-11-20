@@ -146,10 +146,21 @@ def head(doc, text, level=1):
     return p
 
 
+def add_figure(doc, path_or_obj, width_cm):
+    """Insert a figure that stays on the same page as its caption."""
+    doc.add_picture(path_or_obj, width=Cm(width_cm))
+    p = doc.paragraphs[-1]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.keep_with_next = True
+    p.paragraph_format.keep_together = True
+    return p
+
+
 def caption(doc, text):
     p = doc.add_paragraph()
     rich(p, text, size=Pt(8.5), color=GREY)
     p.paragraph_format.space_after = Pt(7)
+    p.paragraph_format.keep_together = True      # a caption split across pages is unreadable
     return p
 
 
@@ -189,6 +200,13 @@ def table(doc, header, rows, widths=None, font=Pt(8.2)):
         for row in tbl.rows:
             for i, w in enumerate(widths):
                 row.cells[i].width = Cm(w)
+    # never let a single row break across a page: a split row leaves an orphan fragment at the
+    # top of the next page and loses the symbol it belongs to
+    for row in tbl.rows:
+        trPr = row._tr.get_or_add_trPr()
+        el = OxmlElement("w:cantSplit")
+        el.set(qn("w:val"), "true")
+        trPr.append(el)
     # keep short tables on one page: Word happily splits a 9-row table after row 6, and
     # "keep with next" on every row but the last pushes the whole block to the next page
     if len(rows) <= 15:
@@ -526,19 +544,16 @@ def build(folder, report_dir=None, title=None, tile_um=DEFAULT_TILE_UM,
     caption(doc, f"Table 1 — every field in `{name}`. Λ is the period from the profile autocorrelation, "
                  f"± the robust spread of the local periods inside that field.")
 
-    doc.add_picture(F1, width=Cm(16.2))
-    doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    add_figure(doc, F1, 16.2)
     caption(doc, "Figure 1 — period (with the within-field spread), orientation and ordered area for every "
                  "field; the dotted lines mark the set mean.")
 
-    doc.add_picture(F2, width=Cm(12.2))
-    doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    add_figure(doc, F2, 12.2)
     caption(doc, f"Figure 2 — distribution of the local period over all {len(til)} classification windows "
                  f"of this set. A narrow distribution means the texture repeats with the same spacing "
                  f"everywhere at the {tile_um:g} µm scale.")
 
-    doc.add_picture(F3, width=Cm(16.2))
-    doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    add_figure(doc, F3, 16.2)
     caption(doc, "Figure 3 — window quality for the first fields: dark grey = inside the acceptance "
                  "band, pale yellow → deep red = progressively further outside it, light grey = "
                  "excluded frame.")
@@ -569,8 +584,7 @@ def build(folder, report_dir=None, title=None, tile_um=DEFAULT_TILE_UM,
               "`QC_report/annotated/`, and the per-window values are in "
               "`QC_report/window_classes.csv` (column `severity`).")
     for i, (pair, r) in enumerate(pairs, 1):
-        doc.add_picture(pair, width=Cm(16.4))
-        doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        add_figure(doc, pair, 16.4)
         caption(doc, f"A{i} — {os.path.splitext(r['file'])[0]}: ordered {100*r['ordered_frac']:.0f} %, "
                      f"disordered {100*r['disordered_frac']:.0f} %, bare {100*r['bare_frac']:.0f} %.")
 

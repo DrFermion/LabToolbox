@@ -41,7 +41,7 @@ from docx.oxml import OxmlElement
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from build_sem_group_report import (mr, mfrac, msub, msup, mdelim, mu, add_eq, rich, para,
-                                    head, caption, table, three_line, fig_pair,
+                                    head, caption, table, three_line, fig_pair, add_figure,
                                     NAVY, GREY, DATE_EN)
 from labtoolbox.semtexture import analyse_image, annotate_image
 
@@ -329,18 +329,15 @@ def build(folder, name="650 nm nanopillars", out_dir=None, report_name=None,
                  f"field-to-field scatter inside that coupon; the last column is the range of the "
                  f"per-field ordered area.")
 
-    doc.add_picture(F1, width=Cm(14.5))
-    doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    add_figure(doc, F1, 14.5)
     caption(doc, "Figure 1 — coupon mean period with its field-to-field SD. The dashed line is the "
                  "series mean; the vertical scatter is what limits a \u201csame period everywhere\u201d "
                  "claim.")
-    doc.add_picture(F2, width=Cm(14.5))
-    doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    add_figure(doc, F2, 14.5)
     caption(doc, "Figure 2 — period of every field, grouped by coupon (box = quartiles, dots = "
                  "fields). Overlapping boxes mean the coupons cannot be told apart by period.")
 
-    doc.add_picture(F3, width=Cm(14.5))
-    doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    add_figure(doc, F3, 14.5)
     caption(doc, "Figure 3 — area inside the acceptance band per coupon (bar = coupon mean, dots = "
                  "individual fields). The spread inside a coupon is larger than the difference "
                  "between coupons.")
@@ -382,8 +379,7 @@ def build(folder, name="650 nm nanopillars", out_dir=None, report_name=None,
                   "original micrograph, right the same field with the off-spec windows tinted "
                   "(pale yellow → deep red). No field is cherry-picked as best or worst.")
         for i, (c, fname, pair, row) in enumerate(reps, 1):
-            doc.add_picture(pair, width=Cm(16.0))
-            doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+            add_figure(doc, pair, 16.0)
             caption(doc, f"B{i} — {c} / "
                          f"{os.path.splitext(fname)[0]}: inside {100*row['ordered_frac']:.0f} %, "
                          f"off-spec {100*row['disordered_frac']:.0f} %.")
